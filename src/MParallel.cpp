@@ -46,15 +46,24 @@ const unsigned int MPARALLEL_VERSION_MINOR = 0;
 
 //Options
 static DWORD        g_option_max_instances;
+static DWORD        g_option_process_timeout;
 static bool         g_option_read_stdin_lines;
 static bool         g_option_auto_quote_vars;
+static bool         g_option_force_use_shell;
+static bool         g_option_abort_on_failure;
 static std::wstring g_option_separator;
 static std::wstring g_option_command_pattern;
 static std::wstring g_option_input_file_name;
 
+//Types
+typedef std::queue<std::wstring> queue_t;
+
 //Globals
-static std::queue<std::wstring> g_queue;
-static bool                     g_logo_printed;
+static queue_t g_queue;
+static bool    g_logo_printed;
+static HANDLE  g_processes[MAXIMUM_WAIT_OBJECTS];
+static bool    g_isrunning[MAXIMUM_WAIT_OBJECTS];
+static DWORD   g_process_count;
 
 // ==========================================================================
 // TEXT OUTPUT
@@ -171,18 +180,22 @@ static bool contains_whitespace(const wchar_t *str)
 }
 
 //Trim trailing EOL chars
-static wchar_t *trim_eol(wchar_t *const str)
+static wchar_t *trim_str(wchar_t *str)
 {
-	size_t len = wcslen(str);
-	while (len > 0)
+	while ((*str) && iswspace(*str) || iswcntrl(*str) || iswblank(*str))
 	{
-		const wchar_t c = str[--len];
-		if ((c == L'\r') || (c == L'\n'))
+		str++;
+	}
+	size_t pos = wcslen(str);
+	while (pos > 0)
+	{
+		--pos;
+		if (iswspace(str[pos]) || iswcntrl(str[pos]) || iswblank(str[pos]))
 		{
-			str[len] = L'\0';
+			str[pos] = L'\0';
 			continue;
 		}
-		break; /*no mor EOL*/
+		break;
 	}
 	return str;
 }
@@ -196,6 +209,16 @@ static wchar_t *trim_eol(wchar_t *const str)
 	if ((!value) || (!value[0])) \
 	{ \
 		my_print(L"ERROR: Argumet for option \"--%s\" is missing!\n\n", option); \
+		return false; \
+	} \
+} \
+while(0)
+
+#define REQUIRE_NO_VALUE() do \
+{ \
+	if (value && value[0]) \
+	{ \
+		my_print(L"ERROR: Excess argumet for option \"--%s\" encountred!\n\n", option); \
 		return false; \
 	} \
 } \
@@ -322,6 +345,7 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 	}
 	else if (MATCH(option, L"stdin"))
 	{
+		REQUIRE_NO_VALUE();
 		g_option_read_stdin_lines = true;
 		return true;
 	}
@@ -333,7 +357,30 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 	}
 	else if (MATCH(option, L"auto-quote"))
 	{
+		REQUIRE_NO_VALUE();
 		g_option_auto_quote_vars = true;
+		return true;
+	}
+	else if (MATCH(option, L"shell"))
+	{
+		REQUIRE_NO_VALUE();
+		g_option_force_use_shell = true;
+		return true;
+	}
+	else if (MATCH(option, L"timeout"))
+	{
+		REQUIRE_VALUE();
+		if (parse_uint32(value, temp))
+		{
+			g_option_process_timeout = temp;
+			return true;
+		}
+		return false;
+	}
+	else if (MATCH(option, L"abort"))
+	{
+		REQUIRE_NO_VALUE();
+		g_option_abort_on_failure = true;
 		return true;
 	}
 
@@ -395,13 +442,17 @@ static void parse_commands_file(FILE *const input)
 	while (fgetws(line_buffer, 32768, input))
 	{
 		int argc;
-		wchar_t *const *const argv = CommandLineToArgvW(trim_eol(line_buffer), &argc);
-		if (!argv)
+		const wchar_t *const trimmed = trim_str(line_buffer);
+		if (trimmed && trimmed[0])
 		{
-			fatal_exit(L"Exit: CommandLineToArgvW() has failed!\n");
+			wchar_t *const *const argv = CommandLineToArgvW(trimmed, &argc);
+			if (!argv)
+			{
+				fatal_exit(L"Exit: CommandLineToArgvW() has failed!\n\n");
+			}
+			parse_commands(argc, argv, 0, NULL);
+			LocalFree((HLOCAL)argv);
 		}
-		parse_commands(argc, argv, 0, NULL);
-		LocalFree((HLOCAL)argv);
 	}
 }
 
@@ -421,6 +472,194 @@ static bool parse_commands_file(const wchar_t *const file_name)
 }
 
 // ==========================================================================
+// PROCESS FUNCTIONS
+// ==========================================================================
+
+//Print Win32 error message
+static void print_win32_error(const wchar_t *const format, const DWORD error)
+{
+	wchar_t buffer[1024];
+	if (FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM, NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buffer, 1024, NULL) > 0)
+	{
+		my_print(format, trim_str(buffer));
+	}
+}
+
+//Terminate all running processes
+static void terminate_processes(void)
+{
+	for (DWORD i = 0; i < g_option_max_instances; i++)
+	{
+		if (g_isrunning[i])
+		{
+			g_process_count--;
+			TerminateProcess(g_processes[i], 666);
+			CloseHandle(g_processes[i]);
+			g_isrunning[i] = false;
+			g_processes[i] = NULL;
+		}
+	}
+}
+
+//Start the next process
+static HANDLE start_next_process(void)
+{
+	std::wstringstream command;
+	if (g_option_force_use_shell)
+	{
+		command << L"cmd.exe /c ";
+	}
+	command << g_queue.front();
+	g_queue.pop();
+
+	STARTUPINFOW startup_info;
+	memset(&startup_info, 0, sizeof(STARTUPINFOW));
+
+	PROCESS_INFORMATION process_info;
+	memset(&process_info, 0, sizeof(PROCESS_INFORMATION));
+
+	if (CreateProcessW(NULL, (LPWSTR)command.str().c_str(), NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &process_info))
+	{
+		CloseHandle(process_info.hThread);
+		return process_info.hProcess;
+	}
+
+	const DWORD error = GetLastError();
+	print_win32_error(L"\nProcess creation has failed: %s\n", error);
+	my_print(L"ERROR: Process ``%s´´could not be created!\n\n", command.str().c_str());
+	return NULL;
+}
+
+//Wait for *any* running process to terminate
+static DWORD wait_for_process(bool &timeout)
+{
+	DWORD index[MAXIMUM_WAIT_OBJECTS];
+	HANDLE handles[MAXIMUM_WAIT_OBJECTS];
+	DWORD count = 0;
+	for (DWORD i = 0; i < g_option_max_instances; i++)
+	{
+		if (g_isrunning[i])
+		{
+			index[count] = i;
+			handles[count++] = g_processes[i];
+		}
+	}
+	if (count > 0)
+	{
+		const DWORD ret = WaitForMultipleObjects(count, &handles[0], FALSE, (g_option_process_timeout > 0) ? g_option_process_timeout : INFINITE);
+		if ((ret >= WAIT_OBJECT_0) && (ret < WAIT_OBJECT_0 + count))
+		{
+			return index[ret - WAIT_OBJECT_0];
+		}
+		if ((ret == WAIT_TIMEOUT) && (g_option_process_timeout > 0))
+		{
+			timeout = true;
+		}
+	}
+	return MAXDWORD;
+}
+
+//Run processes
+static int run_processes(void)
+{
+	DWORD slot = 0, exit_code = 0;
+	bool aborted = false;
+
+	//MAIN PROCESSING LOOP
+	while (!((g_queue.empty() && (g_process_count < 1)) || aborted))
+	{
+		//Launch the next process(es)
+		while ((!g_queue.empty()) && (g_process_count < g_option_max_instances))
+		{
+			if (const HANDLE process = start_next_process())
+			{
+				g_process_count++;
+				while (g_isrunning[slot])
+				{
+					slot = (slot + 1) % g_option_max_instances;
+				}
+				g_processes[slot] = process;
+				g_isrunning[slot] = true;
+			}
+			else
+			{
+				if (g_option_abort_on_failure)
+				{
+					exit_code = std::max(exit_code, DWORD(1));
+					aborted = true;
+					my_print(L"\nERROR: Process creation failed, aborting!\n\n");
+					break;
+				}
+			}
+		}
+
+		//Wait for one process to terminate
+		if ((!aborted) && (g_process_count > 0) && ((g_process_count >= g_option_max_instances) || g_queue.empty()))
+		{
+			bool timeout = false;
+			const DWORD index = wait_for_process(timeout);
+			if (index != MAXDWORD)
+			{
+				g_process_count--;
+				DWORD temp;
+				if (GetExitCodeProcess(g_processes[index], &temp))
+				{
+					exit_code = std::max(exit_code, temp);
+					if ((exit_code > 0) && g_option_abort_on_failure)
+					{
+						aborted = true;
+						my_print(L"\nERROR: Command failed, aborting! (ExitCode: %u)\n\n", exit_code);
+						break;
+					}
+				}
+				CloseHandle(g_processes[index]);
+				g_processes[index] = NULL;
+				g_isrunning[index] = false;
+			}
+			else
+			{
+				if (timeout)
+				{
+					my_print(L"\nERROR: Timeout encountered, terminating process!\n\n");
+					terminate_processes();
+				}
+				else
+				{
+					exit_code = std::max(exit_code, DWORD(1));
+					aborted = true;
+					my_print(L"\nERROR: Failed to wait for running process!\n\n");
+					break;
+				}
+			}
+		}
+	}
+
+	//Wait for the pending processes
+	while (g_process_count > 0)
+	{
+		bool timeout = false;
+		const DWORD index = wait_for_process(timeout);
+		if (index != MAXDWORD)
+		{
+			g_process_count--;
+			CloseHandle(g_processes[index]);
+			g_processes[index] = NULL;
+			g_isrunning[index] = false;
+		}
+		else
+		{
+			my_print(L"ERROR: Failed to wait for running process!\n");
+			terminate_processes();
+			break;
+		}
+	}
+
+	//Terminate all processes still running at this point
+	terminate_processes();
+	return exit_code;
+}
+
+// ==========================================================================
 // MAIN FUNCTION
 // ==========================================================================
 
@@ -428,10 +667,18 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 {
 	//Initialize globals and options
 	g_logo_printed = false;
+	g_option_force_use_shell = false;
 	g_option_read_stdin_lines = false;
 	g_option_auto_quote_vars = false;
+	g_option_abort_on_failure = false;
 	g_option_separator = L":";
 	g_option_max_instances = processor_count();
+	g_process_count = 0;
+	g_option_process_timeout = 0;
+
+	//Clear
+	memset(g_processes, 0, sizeof(HANDLE) * MAXIMUM_WAIT_OBJECTS);
+	memset(g_isrunning, 0, sizeof(bool)   * MAXIMUM_WAIT_OBJECTS);
 	
 	//Parse CLI arguments
 	if (!parse_arguments(argc, argv))
@@ -456,20 +703,15 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 		parse_commands_file(stdin);
 	}
 
+	//Valid queue?
 	if (g_queue.size() < 1)
 	{
 		my_print(L"Nothing to do. Run with option \"--help\" for guidance!\n\n");
 		return EXIT_FAILURE;
 	}
 
-	my_print(L"COUNT: %u\n", g_option_max_instances);
-	while (!g_queue.empty())
-	{
-		my_print(L"JOB:\n%s\n\n", g_queue.front().c_str());
-		g_queue.pop();
-	}
-
-	return EXIT_SUCCESS;
+	g_logo_printed = true;
+	return run_processes();
 }
 
 int wmain(const int argc, const wchar_t *const argv[])
