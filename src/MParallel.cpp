@@ -149,9 +149,9 @@ static void print_manpage(void)
 	my_print(L"  --separator=<SEP>    Set the command separator to SEP (Default is '%s')\n", DEFAULT_SEP);
 	my_print(L"  --input=FILE         Read additional commands from specified FILE\n");
 	my_print(L"  --stdin              Read additional commands from STDIN stream\n");
-	my_print(L"  --auto-quote         Automatically quote tokens in quotation marks\n");
+	my_print(L"  --auto-quote         Automatically wrap tokens in quotation marks\n");
 	my_print(L"  --shell              Start each command inside a new sub-shell (cmd.exe)\n");
-	my_print(L"  --timeout=TIMEOUT    Kill processes after TIMEOUT milliseconds\n");
+	my_print(L"  --timeout=<TIMEOUT>  Kill processes after TIMEOUT milliseconds\n");
 	my_print(L"  --abort              Abort batch, if any command failed to execute\n");
 	my_print(L"  --silent             Disable all textual messages, \"silent mode\"\n");
 	my_print(L"  --trace              Enable more diagnostic outputs (for debugging only)\n");
