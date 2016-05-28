@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////////////////
 // MParallel - Parallel Batch Processor
-// Copyright (c) 2014 LoRd_MuldeR <mulder2@gmx.de>. Some rights reserved.
+// Copyright (c) 2016 LoRd_MuldeR <mulder2@gmx.de>. Some rights reserved.
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -47,6 +47,7 @@ const unsigned int MPARALLEL_VERSION_MINOR = 0;
 //Options
 static DWORD        g_option_max_instances;
 static bool         g_option_read_stdin_lines;
+static bool         g_option_auto_quote_vars;
 static std::wstring g_option_separator;
 static std::wstring g_option_command_pattern;
 static std::wstring g_option_input_file_name;
@@ -201,14 +202,14 @@ static wchar_t *trim_eol(wchar_t *const str)
 while(0)
 
 //Parse commands (simple)
-static void parse_commands_simple(const int argc, const wchar_t *const argv[], const int offset)
+static void parse_commands_simple(const int argc, const wchar_t *const argv[], const int offset, const wchar_t *const separator)
 {
 	int i = offset;
 	std::wstringstream command_buffer;
 	while (i < argc)
 	{
 		const wchar_t *const current = argv[i++];
-		if (wcscmp(current, g_option_separator.c_str()))
+		if ((!separator) || wcscmp(current, separator))
 		{
 			if (command_buffer.tellp())
 			{
@@ -240,18 +241,28 @@ static void parse_commands_simple(const int argc, const wchar_t *const argv[], c
 }
 
 //Parse commands with pattern
-static void parse_commands_pattern(const std::wstring &pattern, int argc, const wchar_t *const argv[], const int offset)
+static void parse_commands_pattern(const std::wstring &pattern, int argc, const wchar_t *const argv[], const int offset, const wchar_t *const separator)
 {
 	int i = offset, k = 0;
 	std::wstring command_buffer = pattern;
 	while (i < argc)
 	{
 		const wchar_t *const current = argv[i++];
-		if (wcscmp(current, g_option_separator.c_str()))
+		if ((!separator) || wcscmp(current, separator))
 		{
+			
 			std::wstringstream placeholder;
 			placeholder << L"{{" << (k++) << L"}}";
-			replace_str(command_buffer, placeholder.str(), current);
+			if (g_option_auto_quote_vars && contains_whitespace(current))
+			{
+				std::wstringstream replacement;
+				replacement << L'"' << current << L'"';
+				replace_str(command_buffer, placeholder.str(), replacement.str());
+			}
+			else
+			{
+				replace_str(command_buffer, placeholder.str(), current);
+			}
 		}
 		else
 		{
@@ -270,15 +281,15 @@ static void parse_commands_pattern(const std::wstring &pattern, int argc, const 
 }
 
 //Parse commands
-static void parse_commands(int argc, const wchar_t *const argv[], const int offset)
+static void parse_commands(int argc, const wchar_t *const argv[], const int offset, const wchar_t *const separator)
 {
 	if (!g_option_command_pattern.empty())
 	{
-		parse_commands_pattern(g_option_command_pattern, argc, argv, offset);
+		parse_commands_pattern(g_option_command_pattern, argc, argv, offset, separator);
 	}
 	else
 	{
-		parse_commands_simple(argc, argv, offset);
+		parse_commands_simple(argc, argv, offset, separator);
 	}
 }
 
@@ -320,6 +331,11 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 		g_option_input_file_name = value;
 		return true;
 	}
+	else if (MATCH(option, L"auto-quote"))
+	{
+		g_option_auto_quote_vars = true;
+		return true;
+	}
 
 	my_print(L"ERROR: Unknown option \"--%s\" encountred!\n\n", option);
 	return false;
@@ -348,16 +364,24 @@ static bool parse_arguments(const int argc, const wchar_t *const argv[])
 	while(i < argc)
 	{
 		const wchar_t *const current = argv[i++];
-		if ((current[0] == L'-') && (current[1] == L'-') && current[2])
+		if ((current[0] == L'-') && (current[1] == L'-'))
 		{
-			if (!parse_option_string(&current[2]))
+			if (current[2])
 			{
-				return false;
+				if (!parse_option_string(&current[2]))
+				{
+					return false;
+				}
+			}
+			else
+			{
+				parse_commands(argc, argv, i, g_option_separator.c_str());
+				break;
 			}
 		}
 		else
 		{
-			parse_commands(argc, argv, --i);
+			parse_commands(argc, argv, --i, g_option_separator.c_str());
 			break;
 		}
 	}
@@ -376,7 +400,7 @@ static void parse_commands_file(FILE *const input)
 		{
 			fatal_exit(L"Exit: CommandLineToArgvW() has failed!\n");
 		}
-		parse_commands(argc, argv, 0);
+		parse_commands(argc, argv, 0, NULL);
 		LocalFree((HLOCAL)argv);
 	}
 }
@@ -405,6 +429,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	//Initialize globals and options
 	g_logo_printed = false;
 	g_option_read_stdin_lines = false;
+	g_option_auto_quote_vars = false;
 	g_option_separator = L":";
 	g_option_max_instances = processor_count();
 	

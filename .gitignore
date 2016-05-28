@@ -2,3 +2,4 @@
 /bin
 *.suo
 *.VC.db
+/*.opendb
