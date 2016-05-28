@@ -22,11 +22,11 @@ The *first* form takes commands directly from the command-line, delimited by col
 
 This basic example uses **MParallel** to run multiple "ping" commands in parallel:
 
-    MParallel.exe ping.exe -n 16 google.com : ping.exe -n 16 fsf.org : ping.exe -n 16 gnu.org : ping.exe -n 16 github.com
+    MParallel.exe ping.exe -n 16 fsf.org : ping.exe -n 16 gnu.org : ping.exe -n 16 github.com
 
 A slightly more advanced example, using a command pattern to express the above command-line more elegantly:
 
-    MParallel.exe --pattern="ping.exe -n 16 {{0}}" google.com : fsf.org : gnu.org : github.com
+    MParallel.exe --pattern="ping.exe -n 16 {{0}}" fsf.org : gnu.org : github.com
 
 Now let's read the output of the "dir" command to copy all "&ast;.jpg" file to "&ast;.jpg.v2":
 
