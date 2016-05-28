@@ -23,6 +23,7 @@
 //Const
 const unsigned int MPARALLEL_VERSION_MAJOR = 1;
 const unsigned int MPARALLEL_VERSION_MINOR = 0;
+const unsigned int MPARALLEL_VERSION_PATCH = 0;
 
 //CRT
 #include <string>
@@ -30,6 +31,7 @@ const unsigned int MPARALLEL_VERSION_MINOR = 0;
 #include <cstring>
 #include <queue>
 #include <algorithm>
+#include <ctime>
 #include <io.h>
 #include <fcntl.h>
 
@@ -44,6 +46,9 @@ const unsigned int MPARALLEL_VERSION_MINOR = 0;
 #define BOUND(MIN,VAL,MAX) std::min(std::max((MIN), (VAL)), (MAX));
 #define MATCH(X,Y) (_wcsicmp((X), (Y)) == 0)
 
+//Defaults
+static const wchar_t *const DEFAULT_SEP = L":";
+
 //Options
 static DWORD        g_option_max_instances;
 static DWORD        g_option_process_timeout;
@@ -51,6 +56,9 @@ static bool         g_option_read_stdin_lines;
 static bool         g_option_auto_quote_vars;
 static bool         g_option_force_use_shell;
 static bool         g_option_abort_on_failure;
+static bool         g_option_print_manpage;
+static bool         g_option_enable_tracing;
+static bool         g_option_disable_outputs;
 static std::wstring g_option_separator;
 static std::wstring g_option_command_pattern;
 static std::wstring g_option_input_file_name;
@@ -64,53 +72,7 @@ static bool    g_logo_printed;
 static HANDLE  g_processes[MAXIMUM_WAIT_OBJECTS];
 static bool    g_isrunning[MAXIMUM_WAIT_OBJECTS];
 static DWORD   g_process_count;
-
-// ==========================================================================
-// TEXT OUTPUT
-// ==========================================================================
-
-#define my_print(...) do \
-{ \
-	if(!g_logo_printed) \
-	{ \
-		print_logo(); \
-		g_logo_printed = true; \
-	} \
-	PRINT(__VA_ARGS__); \
-} \
-while(0)
-
-static void print_logo(void)
-{
-	PRINT(L"===============================================================================\n");
-	PRINT(L"MParallel - Parallel Batch Processor, Version %u.%02u [%S]\n", MPARALLEL_VERSION_MAJOR, MPARALLEL_VERSION_MINOR, __DATE__);
-	PRINT(L"Copyright (c) 2016 LoRd_MuldeR <mulder2@gmx.de>. Some rights reserved.\n\n");
-	PRINT(L"This program is free software: you can redistribute it and/or modify\n");
-	PRINT(L"it under the terms of the GNU General Public License <http://www.gnu.org/>.\n");
-	PRINT(L"Note that this program is distributed with ABSOLUTELY NO WARRANTY.\n");
-	PRINT(L"=============================================================================== \n\n");
-}
-
-// ==========================================================================
-// ERROR HANDLING
-// ==========================================================================
-
-static void fatal_exit(const wchar_t *const error_message)
-{
-	const HANDLE hStdErr = GetStdHandle(STD_ERROR_HANDLE);
-	if (hStdErr != INVALID_HANDLE_VALUE)
-	{
-		DWORD written;
-		WriteFile(hStdErr, error_message, lstrlenW(error_message), &written, NULL);
-		FlushFileBuffers(hStdErr);
-	}
-	TerminateProcess(GetCurrentProcess(), 666);
-}
-
-static void my_invalid_parameter_handler(wchar_t const*, wchar_t const*, wchar_t const*, unsigned int, uintptr_t)
-{
-	fatal_exit(L"\n\nFATAL: Invalid parameter handler invoked!\n\n");
-}
+static DWORD   g_processes_completed;
 
 // ==========================================================================
 // SYSTEM INFO
@@ -135,6 +97,89 @@ static DWORD processor_count(void)
 }
 
 // ==========================================================================
+// TEXT OUTPUT
+// ==========================================================================
+
+#define my_print(...) do \
+{ \
+	if(!g_option_disable_outputs) \
+	{ \
+		if(!g_logo_printed) \
+		{ \
+			print_logo(); \
+			g_logo_printed = true; \
+		} \
+		PRINT(__VA_ARGS__); \
+	} \
+} \
+while(0)
+
+#define my_trace(...) do \
+{ \
+	if(!g_option_disable_outputs) \
+	{ \
+		if(g_option_enable_tracing) \
+		{ \
+			PRINT(L"[TRACE] " __VA_ARGS__); \
+		} \
+	} \
+} \
+while(0)
+
+static void print_logo(void)
+{
+	PRINT(L"===============================================================================\n");
+	PRINT(L"MParallel - Parallel Batch Processor, Version %u.%u.%u [%S]\n", MPARALLEL_VERSION_MAJOR, MPARALLEL_VERSION_MINOR, MPARALLEL_VERSION_PATCH, __DATE__);
+	PRINT(L"Copyright (c) 2016 LoRd_MuldeR <mulder2@gmx.de>. Some rights reserved.\n\n");
+	PRINT(L"This program is free software: you can redistribute it and/or modify\n");
+	PRINT(L"it under the terms of the GNU General Public License <http://www.gnu.org/>.\n");
+	PRINT(L"Note that this program is distributed with ABSOLUTELY NO WARRANTY.\n");
+	PRINT(L"=============================================================================== \n\n");
+}
+
+static void print_manpage(void)
+{
+	my_print(L"Synopsis:\n");
+	my_print(L"  MParallel.exe [options] <command_1> : <command_2> : ... : <command_n>\n");
+	my_print(L"  MParallel.exe [options] --input=commands.txt\n");
+	my_print(L"  GenerateCommands.exe [parameters] | MParallel.exe [options] --stdin\n\n");
+	my_print(L"Options:\n");
+	my_print(L"  --count=<N>          Run at most N instances in parallel (Default is %u)\n", processor_count());
+	my_print(L"  --pattern=<PATTERN>  Generate commands from the specified PATTERN\n");
+	my_print(L"  --separator=<SEP>    Set the command separator to SEP (Default is '%s')\n", DEFAULT_SEP);
+	my_print(L"  --input=FILE         Read additional commands from specified FILE\n");
+	my_print(L"  --stdin              Read additional commands from STDIN stream\n");
+	my_print(L"  --auto-quote         Automatically quote tokens in quotation marks\n");
+	my_print(L"  --shell              Start each command inside a new sub-shell (cmd.exe)\n");
+	my_print(L"  --timeout=TIMEOUT    Kill processes after TIMEOUT milliseconds\n");
+	my_print(L"  --abort              Abort batch, if any command failed to execute\n");
+	my_print(L"  --silent             Disable all textual messages, \"silent mode\"\n");
+	my_print(L"  --trace              Enable more diagnostic outputs (for debugging only)\n");
+	my_print(L"  --help               Print this help screen\n");
+}
+
+// ==========================================================================
+// ERROR HANDLING
+// ==========================================================================
+
+static void fatal_exit(const wchar_t *const error_message)
+{
+	const HANDLE hStdErr = GetStdHandle(STD_ERROR_HANDLE);
+	if (hStdErr != INVALID_HANDLE_VALUE)
+	{
+		DWORD written;
+		WriteFile(hStdErr, error_message, lstrlenW(error_message), &written, NULL);
+		FlushFileBuffers(hStdErr);
+	}
+	TerminateProcess(GetCurrentProcess(), 666);
+}
+
+static void my_invalid_parameter_handler(wchar_t const*, wchar_t const*, wchar_t const*, unsigned int, uintptr_t)
+{
+	fatal_exit(L"\n\nFATAL: Invalid parameter handler invoked!\n\n");
+}
+
+// ==========================================================================
 // STRING SUPPORT ROUTINES
 // ==========================================================================
 
@@ -143,6 +188,7 @@ static bool parse_uint32(const wchar_t *str, DWORD &value)
 {
 	if (swscanf_s(str, L"%lu", &value) != 1)
 	{
+		g_option_disable_outputs = false;
 		my_print(L"ERROR: Argument \"%s\" doesn't look like a valid integer!\n\n", str);
 		return false;
 	}
@@ -150,9 +196,9 @@ static bool parse_uint32(const wchar_t *str, DWORD &value)
 }
 
 //Replace sub-strings
-static bool replace_str(std::wstring& str, const std::wstring& needle, const std::wstring& replacement)
+static DWORD replace_str(std::wstring& str, const std::wstring& needle, const std::wstring& replacement)
 {
-	bool okay = false;
+	DWORD count = 0;
 	for (;;)
 	{
 		const size_t start_pos = str.find(needle);
@@ -161,9 +207,9 @@ static bool replace_str(std::wstring& str, const std::wstring& needle, const std
 			break;
 		}
 		str.replace(start_pos, needle.length(), replacement);
-		okay = true;
+		count++;
 	}
-	return okay;
+	return count;
 }
 
 //Check for space chars
@@ -208,6 +254,7 @@ static wchar_t *trim_str(wchar_t *str)
 { \
 	if ((!value) || (!value[0])) \
 	{ \
+		g_option_disable_outputs = false; \
 		my_print(L"ERROR: Argumet for option \"--%s\" is missing!\n\n", option); \
 		return false; \
 	} \
@@ -218,6 +265,7 @@ while(0)
 { \
 	if (value && value[0]) \
 	{ \
+		g_option_disable_outputs = false; \
 		my_print(L"ERROR: Excess argumet for option \"--%s\" encountred!\n\n", option); \
 		return false; \
 	} \
@@ -232,6 +280,7 @@ static void parse_commands_simple(const int argc, const wchar_t *const argv[], c
 	while (i < argc)
 	{
 		const wchar_t *const current = argv[i++];
+		my_trace("Process token: %s\n", current);
 		if ((!separator) || wcscmp(current, separator))
 		{
 			if (command_buffer.tellp())
@@ -271,6 +320,7 @@ static void parse_commands_pattern(const std::wstring &pattern, int argc, const 
 	while (i < argc)
 	{
 		const wchar_t *const current = argv[i++];
+		my_trace("Process token: %s\n", current);
 		if ((!separator) || wcscmp(current, separator))
 		{
 			
@@ -280,19 +330,25 @@ static void parse_commands_pattern(const std::wstring &pattern, int argc, const 
 			{
 				std::wstringstream replacement;
 				replacement << L'"' << current << L'"';
-				replace_str(command_buffer, placeholder.str(), replacement.str());
+				if (replace_str(command_buffer, placeholder.str(), replacement.str()) < 1)
+				{
+					my_print(L"WARNING: Discarding token \"%s\", due to missing {{%u}} placeholder!\n\n", replacement.str().c_str(), (k - 1));
+				}
 			}
 			else
 			{
-				replace_str(command_buffer, placeholder.str(), current);
+				if(replace_str(command_buffer, placeholder.str(), current) < 1)
+				{
+					my_print(L"WARNING: Discarding token \"%s\", due to missing {{%u}} placeholder!\n\n", current, (k - 1));
+				}
 			}
 		}
 		else
 		{
 			if (!command_buffer.empty())
 			{
-				g_queue.push(command_buffer);
 				k = 0;
+				g_queue.push(command_buffer);
 				command_buffer = pattern;
 			}
 		}
@@ -383,7 +439,26 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 		g_option_abort_on_failure = true;
 		return true;
 	}
+	else if (MATCH(option, L"trace"))
+	{
+		REQUIRE_NO_VALUE();
+		g_option_enable_tracing = true;
+		return true;
+	}
+	else if (MATCH(option, L"silent"))
+	{
+		REQUIRE_NO_VALUE();
+		g_option_disable_outputs = true;
+		return true;
+	}
+	else if (MATCH(option, L"help"))
+	{
+		REQUIRE_NO_VALUE();
+		g_option_print_manpage = true;
+		return true;
+	}
 
+	g_option_disable_outputs = false;
 	my_print(L"ERROR: Unknown option \"--%s\" encountred!\n\n", option);
 	return false;
 }
@@ -413,11 +488,17 @@ static bool parse_arguments(const int argc, const wchar_t *const argv[])
 		const wchar_t *const current = argv[i++];
 		if ((current[0] == L'-') && (current[1] == L'-'))
 		{
+			my_trace("Process token: %s\n", current);
 			if (current[2])
 			{
 				if (!parse_option_string(&current[2]))
 				{
 					return false;
+				}
+				if (g_option_print_manpage)
+				{
+					g_option_disable_outputs = false;
+					break;
 				}
 			}
 			else
@@ -432,6 +513,12 @@ static bool parse_arguments(const int argc, const wchar_t *const argv[])
 			break;
 		}
 	}
+	if (g_option_enable_tracing && g_option_disable_outputs)
+	{
+		g_option_disable_outputs = false;
+		my_print(L"Error: Options \"--trace\" and \"--silent\" are mutually exclusive!\n\n");
+		return false;
+	}
 	return true;
 }
 
@@ -445,6 +532,7 @@ static void parse_commands_file(FILE *const input)
 		const wchar_t *const trimmed = trim_str(line_buffer);
 		if (trimmed && trimmed[0])
 		{
+			my_trace("Read line: %s\n", trimmed);
 			wchar_t *const *const argv = CommandLineToArgvW(trimmed, &argc);
 			if (!argv)
 			{
@@ -502,15 +590,16 @@ static void terminate_processes(void)
 }
 
 //Start the next process
-static HANDLE start_next_process(void)
+static HANDLE start_next_process(std::wstring command)
 {
-	std::wstringstream command;
 	if (g_option_force_use_shell)
 	{
-		command << L"cmd.exe /c ";
+		std::wstringstream builder;
+		builder << L"cmd.exe /c \"" << command << L"\"";
+		command = builder.str();
 	}
-	command << g_queue.front();
-	g_queue.pop();
+
+	my_trace(L"Starting process: %s\n", command.c_str());
 
 	STARTUPINFOW startup_info;
 	memset(&startup_info, 0, sizeof(STARTUPINFOW));
@@ -518,15 +607,18 @@ static HANDLE start_next_process(void)
 	PROCESS_INFORMATION process_info;
 	memset(&process_info, 0, sizeof(PROCESS_INFORMATION));
 
-	if (CreateProcessW(NULL, (LPWSTR)command.str().c_str(), NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &process_info))
+	if (CreateProcessW(NULL, (LPWSTR)command.c_str(), NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &process_info))
 	{
 		CloseHandle(process_info.hThread);
+		g_processes_completed++;
+		my_trace(L"Process 0x%X has been started.\n", process_info.dwProcessId);
 		return process_info.hProcess;
 	}
 
 	const DWORD error = GetLastError();
+	my_trace(L"CreateProcessW() failed with Win32 error code: 0x%X.\n", error);
 	print_win32_error(L"\nProcess creation has failed: %s\n", error);
-	my_print(L"ERROR: Process ``%s´´could not be created!\n\n", command.str().c_str());
+	my_print(L"ERROR: Process ``%s´´could not be created!\n\n", command.c_str());
 	return NULL;
 }
 
@@ -553,9 +645,12 @@ static DWORD wait_for_process(bool &timeout)
 		}
 		if ((ret == WAIT_TIMEOUT) && (g_option_process_timeout > 0))
 		{
+			my_trace(L"WaitForMultipleObjects() failed with WAIT_TIMEOUT error!\n");
 			timeout = true;
+			return MAXDWORD;
 		}
 	}
+	my_trace(L"WaitForMultipleObjects() failed with Win32 error code: 0x%X.\n", GetLastError());
 	return MAXDWORD;
 }
 
@@ -571,7 +666,9 @@ static int run_processes(void)
 		//Launch the next process(es)
 		while ((!g_queue.empty()) && (g_process_count < g_option_max_instances))
 		{
-			if (const HANDLE process = start_next_process())
+			const std::wstring next_command = g_queue.front();
+			g_queue.pop();
+			if (const HANDLE process = start_next_process(next_command))
 			{
 				g_process_count++;
 				while (g_isrunning[slot])
@@ -604,6 +701,7 @@ static int run_processes(void)
 				DWORD temp;
 				if (GetExitCodeProcess(g_processes[index], &temp))
 				{
+					my_trace(L"Process 0x%X terminated with error code 0x%X.\n", GetProcessId(g_processes[index]), temp);
 					exit_code = std::max(exit_code, temp);
 					if ((exit_code > 0) && g_option_abort_on_failure)
 					{
@@ -611,6 +709,10 @@ static int run_processes(void)
 						my_print(L"\nERROR: Command failed, aborting! (ExitCode: %u)\n\n", exit_code);
 						break;
 					}
+				}
+				else
+				{
+					my_trace(L"Exit code for process 0x%X could not be determined.\n", GetProcessId(g_processes[index]));
 				}
 				CloseHandle(g_processes[index]);
 				g_processes[index] = NULL;
@@ -671,10 +773,13 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	g_option_read_stdin_lines = false;
 	g_option_auto_quote_vars = false;
 	g_option_abort_on_failure = false;
-	g_option_separator = L":";
+	g_option_enable_tracing = false;
+	g_option_disable_outputs = false;
+	g_option_separator = DEFAULT_SEP;
 	g_option_max_instances = processor_count();
-	g_process_count = 0;
 	g_option_process_timeout = 0;
+	g_process_count = 0;
+	g_processes_completed = 0;
 
 	//Clear
 	memset(g_processes, 0, sizeof(HANDLE) * MAXIMUM_WAIT_OBJECTS);
@@ -683,8 +788,16 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	//Parse CLI arguments
 	if (!parse_arguments(argc, argv))
 	{
+		g_option_disable_outputs = false;
 		my_print(L"Failed to parse command-line arguments. Run with option \"--help\" for guidance!\n\n");
 		return EXIT_FAILURE;
+	}
+
+	//Print manpage?
+	if (g_option_print_manpage)
+	{
+		print_manpage();
+		return EXIT_SUCCESS;
 	}
 
 	//Parse jobs from file
@@ -710,8 +823,21 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 		return EXIT_FAILURE;
 	}
 
+	//Tracing
+	my_trace(L"Commands in queue: %u\n", g_queue.size());
+	my_trace(L"Maximum parallel instances: %u\n", g_option_max_instances);
 	g_logo_printed = true;
-	return run_processes();
+
+	//Run processes
+	const clock_t timestamp_enter = clock();
+	const int retval = run_processes();
+	const clock_t timestamp_leave = clock();
+
+	//Logging
+	const double total_time = double(timestamp_leave - timestamp_enter) / double(CLOCKS_PER_SEC);
+	my_print(L"\n--------\n\nExecuted %u commands in %.2f seconds.\n\n", g_processes_completed, total_time);
+
+	return retval;
 }
 
 int wmain(const int argc, const wchar_t *const argv[])
