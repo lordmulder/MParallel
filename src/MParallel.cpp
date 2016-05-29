@@ -20,7 +20,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 
-//Const
+//Version
 const unsigned int MPARALLEL_VERSION_MAJOR = 1;
 const unsigned int MPARALLEL_VERSION_MINOR = 0;
 const unsigned int MPARALLEL_VERSION_PATCH = 0;
@@ -48,10 +48,11 @@ const unsigned int MPARALLEL_VERSION_PATCH = 0;
 #define BOUND(MIN,VAL,MAX) std::min(std::max((MIN), (VAL)), (MAX));
 #define MATCH(X,Y) (_wcsicmp((X), (Y)) == 0)
 
-//Defaults
+//Const
 static const UINT FATAL_EXIT_CODE = 666;
 static const wchar_t *const DEFAULT_SEP = L":";
 static const size_t MAX_TASKS = MAXIMUM_WAIT_OBJECTS - 1;
+static const wchar_t *const FILE_DELIMITERS = L"/\\:";
 
 //Types
 typedef std::queue<std::wstring> queue_t;
@@ -272,6 +273,54 @@ static std::wstring generate_unique_filename(const wchar_t *const directory, con
 	return std::wstring();
 }
 
+//Get only file name
+static std::wstring get_file_name(const wchar_t *const file_name)
+{
+	std::wstring str(file_name);
+	const std::size_t found = str.find_last_of(FILE_DELIMITERS);
+	if (found != std::wstring::npos)
+	{
+		return str.substr(found + 1);
+	}
+	return str;
+}
+
+//Get only file extensions
+static std::wstring get_file_base(const wchar_t *const file_name)
+{
+	std::wstring str(get_file_name(file_name));
+	const std::size_t found = str.find_last_of(L'.');
+	if (found != std::wstring::npos)
+	{
+		return str.substr(0, found);
+	}
+	return str;
+}
+
+//Get only file path
+static std::wstring get_file_path(const wchar_t *const file_name)
+{
+	std::wstring str(file_name);
+	const std::size_t found = str.find_last_of(FILE_DELIMITERS);
+	if (found != std::wstring::npos)
+	{
+		return str.substr(0, found);
+	}
+	return str;
+}
+
+//Get only file extensions
+static std::wstring get_file_extn(const wchar_t *const file_name)
+{
+	std::wstring str(get_file_name(file_name));
+	const std::size_t found = str.find_last_of(L'.');
+	if (found != std::wstring::npos)
+	{
+		return str.substr(found + 1);
+	}
+	return std::wstring();
+}
+
 // ==========================================================================
 // LOGGING
 // ==========================================================================
@@ -412,45 +461,28 @@ static std::string wstring_to_utf8(const std::wstring& str)
 // COMMAND-LINE HANDLING
 // ==========================================================================
 
-#define REQUIRE_VALUE() do \
-{ \
-	if ((!value) || (!value[0])) \
-	{ \
-		options::disable_outputs = false; \
-		my_print(L"ERROR: Argumet for option \"--%s\" is missing!\n\n", option); \
-		return false; \
-	} \
-} \
-while(0)
-
-#define REQUIRE_NO_VALUE() do \
-{ \
-	if (value && value[0]) \
-	{ \
-		options::disable_outputs = false; \
-		my_print(L"ERROR: Excess argumet for option \"--%s\" encountred!\n\n", option); \
-		return false; \
-	} \
-} \
-while(0)
-
-//Load defaults
-static void reset_all_options(void)
+static DWORD expand_placeholder(std::wstring &str, const DWORD n, const wchar_t postfix, const wchar_t *const value)
 {
-	options::force_use_shell  = false;
-	options::read_stdin_lines = false;
-	options::auto_quote_vars  = false;
-	options::disable_lineargv = false;
-	options::abort_on_failure = false;
-	options::enable_tracing   = false;
-	options::disable_outputs  = false;
-	options::disable_jobctrl  = false;
-	options::ignore_exitcode  = false;
-	options::detached_console = false;
-	options::separator        = DEFAULT_SEP;
-	options::max_instances    = processor_count();
-	options::process_timeout  = 0;
-	options::process_priority = PRIORITY_DEFAULT;
+	std::wstringstream placeholder;
+	if (postfix)
+	{
+		placeholder << L"{{" << n << L':' << postfix << L"}}";
+	}
+	else
+	{
+		placeholder << L"{{" << n << L"}}";
+	}
+
+	if (options::auto_quote_vars && contains_whitespace(value))
+	{
+		std::wstringstream replacement;
+		replacement << L'"' << value << L'"';
+		return replace_str(str, placeholder.str(), replacement.str());
+	}
+	else
+	{
+		return replace_str(str, placeholder.str(), value);
+	}
 }
 
 //Parse commands (simple)
@@ -496,7 +528,7 @@ static void parse_commands_simple(const int argc, const wchar_t *const argv[], c
 //Parse commands with pattern
 static void parse_commands_pattern(const std::wstring &pattern, int argc, const wchar_t *const argv[], const int offset, const wchar_t *const separator)
 {
-	int i = offset, k = 0;
+	int i = offset, var_idx = 0;
 	std::wstring command_buffer = pattern;
 	while (i < argc)
 	{
@@ -504,37 +536,29 @@ static void parse_commands_pattern(const std::wstring &pattern, int argc, const 
 		puts_log("Process token: %s\n", current);
 		if ((!separator) || wcscmp(current, separator))
 		{
-			
-			std::wstringstream placeholder;
-			placeholder << L"{{" << (k++) << L"}}";
-			if (options::auto_quote_vars && contains_whitespace(current))
+			DWORD expanded = 0;
+			expanded += expand_placeholder(command_buffer, var_idx, 0x00, current);
+			expanded += expand_placeholder(command_buffer, var_idx, L'N', get_file_name(current).c_str());
+			expanded += expand_placeholder(command_buffer, var_idx, L'B', get_file_base(current).c_str());
+			expanded += expand_placeholder(command_buffer, var_idx, L'P', get_file_path(current).c_str());
+			expanded += expand_placeholder(command_buffer, var_idx, L'X', get_file_extn(current).c_str());
+			if(expanded < 1)
 			{
-				std::wstringstream replacement;
-				replacement << L'"' << current << L'"';
-				if (replace_str(command_buffer, placeholder.str(), replacement.str()) < 1)
-				{
-					my_print(L"WARNING: Discarding token \"%s\", due to missing {{%u}} placeholder!\n\n", replacement.str().c_str(), (k - 1));
-				}
+				my_print(L"WARNING: Discarding token \"%s\", due to missing {{%u}} placeholder!\n\n", current, var_idx);
 			}
-			else
-			{
-				if(replace_str(command_buffer, placeholder.str(), current) < 1)
-				{
-					my_print(L"WARNING: Discarding token \"%s\", due to missing {{%u}} placeholder!\n\n", current, (k - 1));
-				}
-			}
+			var_idx++;
 		}
 		else
 		{
 			if (!command_buffer.empty())
 			{
-				k = 0;
+				var_idx = 0;
 				g_queue.push(command_buffer);
 				command_buffer = pattern;
 			}
 		}
 	}
-	if ((!command_buffer.empty()) && (k > 0))
+	if ((!command_buffer.empty()) && (var_idx > 0))
 	{
 		g_queue.push(command_buffer);
 	}
@@ -551,6 +575,51 @@ static void parse_commands(int argc, const wchar_t *const argv[], const int offs
 	{
 		parse_commands_simple(argc, argv, offset, separator);
 	}
+}
+
+// ==========================================================================
+// OPTION HANDLING
+// ==========================================================================
+
+#define REQUIRE_VALUE() do \
+{ \
+	if ((!value) || (!value[0])) \
+	{ \
+		options::disable_outputs = false; \
+		my_print(L"ERROR: Argumet for option \"--%s\" is missing!\n\n", option); \
+		return false; \
+	} \
+} \
+while(0)
+
+#define REQUIRE_NO_VALUE() do \
+{ \
+	if (value && value[0]) \
+	{ \
+		options::disable_outputs = false; \
+		my_print(L"ERROR: Excess argumet for option \"--%s\" encountred!\n\n", option); \
+		return false; \
+	} \
+} \
+while(0)
+
+//Load defaults
+static void reset_all_options(void)
+{
+	options::force_use_shell = false;
+	options::read_stdin_lines = false;
+	options::auto_quote_vars = false;
+	options::disable_lineargv = false;
+	options::abort_on_failure = false;
+	options::enable_tracing = false;
+	options::disable_outputs = false;
+	options::disable_jobctrl = false;
+	options::ignore_exitcode = false;
+	options::detached_console = false;
+	options::separator = DEFAULT_SEP;
+	options::max_instances = processor_count();
+	options::process_timeout = 0;
+	options::process_priority = PRIORITY_DEFAULT;
 }
 
 //Parse option
