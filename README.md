@@ -108,7 +108,16 @@ The following **MParallel** options are currently available:
 
 # Exit Code
 
-MParallel returns `max(exitcode_1, exitcode_2, ..., exitcode_N)` as its exit code, where **exitcode_i** is the exit code that was returned by **i**-th sub-process. In general, a *zero* exit code indicates that all commands completed successfully, while a *non-zero* exit code indicates that at least one command has failed. Fatal errors are indicated by a **666** exit code.
+**MParallel** returns `max(exitcode_1, exitcode_2, ..., exitcode_N)` as its exit code, where **exitcode_i** is the exit code that was returned by **i**-th sub-process. In general, a *zero* exit code indicates that all commands completed successfully, while a *non-zero* exit code indicates that at least one command has failed. Fatal errors are indicated by a **666** exit code.
+
+
+# Source Code
+
+**MParallel** source code is available from the official [**Git**](https://git-scm.com/) mirrors at:
+
+* <https://github.com/lordmulder/MParallel.git>
+
+* <https://bitbucket.org/lord_mulder/mparallel.git>
 
 
 # License Terms #
