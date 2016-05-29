@@ -75,7 +75,7 @@ namespace options
 	static DWORD        process_timeout;
 	static bool         read_stdin_lines;
 	static bool         auto_quote_vars;
-	static bool         ignore_whitspace;
+	static bool         disable_lineargv;
 	static bool         force_use_shell;
 	static bool         abort_on_failure;
 	static bool         print_manpage;
@@ -220,7 +220,7 @@ static void print_manpage(void)
 	my_print(L"  --logfile=<FILE>     Save logfile to FILE, appends if the file exists\n");
 	my_print(L"  --out-path=<PATH>    Redirect the stdout/stderr of sub-processes to PATH\n");
 	my_print(L"  --auto-wrap          Automatically wrap tokens in quotation marks\n");
-	my_print(L"  --ignore-spaces      Ignore whitespaces when reading commands from file\n");
+	my_print(L"  --no-split-lines     Ignore whitespaces when reading commands from file\n");
 	my_print(L"  --shell              Start each command inside a new sub-shell (cmd.exe)\n");
 	my_print(L"  --timeout=<TIMEOUT>  Kill processes after TIMEOUT milliseconds\n");
 	my_print(L"  --priority=<VALUE>   Run commands with the specified process priority\n");
@@ -440,7 +440,7 @@ static void reset_all_options(void)
 	options::force_use_shell  = false;
 	options::read_stdin_lines = false;
 	options::auto_quote_vars  = false;
-	options::ignore_whitspace = false;
+	options::disable_lineargv = false;
 	options::abort_on_failure = false;
 	options::enable_tracing   = false;
 	options::disable_outputs  = false;
@@ -610,10 +610,10 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 		options::auto_quote_vars = true;
 		return true;
 	}
-	else if (MATCH(option, L"ignore-spaces"))
+	else if (MATCH(option, L"no-split-lines"))
 	{
 		REQUIRE_NO_VALUE();
-		options::ignore_whitspace = true;
+		options::disable_lineargv = true;
 		return true;
 	}
 	else if (MATCH(option, L"shell"))
@@ -779,7 +779,7 @@ static void parse_commands_file(FILE *const input)
 		if (trimmed && trimmed[0])
 		{
 			puts_log("Read line: %s\n", trimmed);
-			if (!options::ignore_whitspace)
+			if (!options::disable_lineargv)
 			{
 				wchar_t *const *const argv = CommandLineToArgvW(trimmed, &argc);
 				if (!argv)

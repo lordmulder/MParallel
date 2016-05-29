@@ -63,7 +63,7 @@ The following **MParallel** options are currently available:
 * `--auto-wrap`  
   Automatically wrap all tokens that contain any whitespace characters in quotation marks. This applies to the expansion of placeholders, when the `--pattern` option is used. For example, if the **N**-th command token contains `foo bar`, then `{{N}}` will be replaced by `"foo bar"` instead of `foo bar`. This option has *no* effect, if `--pattern` is *not* used.
 
-* `--ignore-spaces`  
+* `--no-split-lines`  
   Ignore whitespace characters when reading commands from a file. By default, when MParallel reads commands from a file or from the STDIN stream, each input line will be processed like a full command-line. This means that tokens within each line are *whitespace-delimited*, unless wrapped in quotation marks. If this option is set, *no* command-line splitting is performed on the input lines. Instead, each input line will be treated like *one* unbroken string.
 
 * `--shell`  
