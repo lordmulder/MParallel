@@ -76,7 +76,10 @@ The following **MParallel** options are currently available:
     - **2**: Default priority
     - **3**: Higher than normal priority
     - **4**: Highest priority
-  
+
+* `--detached`  
+  Run each sub-process in a *separate* console window. By default, all sub-processes are connected to the *same* console window as the main MParallel process. Thus, output from all processes will appear in the same console window, in an "interleaved" fashion. With this option set, each sub-process gets a separate console window.
+
 * `--abort`  
   Abort batch, if any command failed to execute. By default, if any command failed, e.g. because the process could *not* be created or because it returned a *non-zero* exit code, other pending commands will still get a chance to run. If this option is set, the whole batch (queue) will be aborted, as soon as one command has failed.
 

@@ -51,6 +51,7 @@ const unsigned int MPARALLEL_VERSION_PATCH = 0;
 //Defaults
 static const UINT FATAL_EXIT_CODE = 666;
 static const wchar_t *const DEFAULT_SEP = L":";
+static const size_t MAX_TASKS = MAXIMUM_WAIT_OBJECTS - 1;
 
 //Types
 typedef std::queue<std::wstring> queue_t;
@@ -81,6 +82,7 @@ namespace options
 	static bool         disable_outputs;
 	static bool         disable_jobctrl;
 	static bool         ignore_exitcode;
+	static bool         detached_console;
 	static std::wstring separator;
 	static std::wstring command_pattern;
 	static std::wstring log_file_name;
@@ -91,12 +93,13 @@ namespace options
 //Globals
 static queue_t g_queue;
 static bool    g_logo_printed;
-static HANDLE  g_processes[MAXIMUM_WAIT_OBJECTS];
-static bool    g_isrunning[MAXIMUM_WAIT_OBJECTS];
+static HANDLE  g_processes[MAX_TASKS];
+static bool    g_isrunning[MAX_TASKS];
 static DWORD   g_process_count;
 static DWORD   g_processes_completed;
 static HANDLE  g_job_object;
 static FILE*   g_log_file;
+static HANDLE  g_interrupt_event;
 
 // ==========================================================================
 // WIN32 SUPPORT
@@ -129,7 +132,7 @@ static DWORD processor_count(void)
 	if (GetProcessAffinityMask(GetCurrentProcess(), &procMask, &sysMask))
 	{
 		const DWORD count = my_popcount(procMask);
-		return BOUND(DWORD(1), count, DWORD(MAXIMUM_WAIT_OBJECTS));
+		return BOUND(DWORD(1), count, DWORD(MAX_TASKS));
 	}
 	return 1;
 }
@@ -215,6 +218,7 @@ static void print_manpage(void)
 	my_print(L"  --timeout=<TIMEOUT>  Kill processes after TIMEOUT milliseconds\n");
 	my_print(L"  --priority=<VALUE>   Run commands with the specified process priority\n");
 	my_print(L"  --ignore-exitcode    Do NOT check the exit code of sub-processes\n");
+	my_print(L"  --detached           Run each sub-process in a separate console window\n");
 	my_print(L"  --abort              Abort batch, if any command failed to execute\n");
 	my_print(L"  --no-jobctrl         Do NOT add new sub-processes to job object\n");
 	my_print(L"  --silent             Disable all textual messages, aka \"silent mode\"\n");
@@ -305,6 +309,22 @@ static void fatal_exit(const wchar_t *const error_message)
 static void my_invalid_parameter_handler(wchar_t const*, wchar_t const*, wchar_t const*, unsigned int, uintptr_t)
 {
 	fatal_exit(L"\n\nFATAL: Invalid parameter handler invoked!\n\n");
+}
+
+static BOOL __stdcall console_ctrl_handler(DWORD ctrl_type)
+{
+	switch (ctrl_type)
+	{
+	case CTRL_C_EVENT:
+	case CTRL_BREAK_EVENT:
+	case CTRL_CLOSE_EVENT:
+		if (g_interrupt_event)
+		{
+			SetEvent(g_interrupt_event);
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 // ==========================================================================
@@ -418,6 +438,7 @@ static void reset_all_options(void)
 	options::disable_outputs  = false;
 	options::disable_jobctrl  = false;
 	options::ignore_exitcode  = false;
+	options::detached_console = false;
 	options::separator        = DEFAULT_SEP;
 	options::max_instances    = processor_count();
 	options::process_timeout  = 0;
@@ -540,7 +561,7 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 		REQUIRE_VALUE();
 		if (parse_uint32(value, temp))
 		{
-			options::max_instances = BOUND(DWORD(1), temp, DWORD(MAXIMUM_WAIT_OBJECTS));
+			options::max_instances = BOUND(DWORD(1), temp, DWORD(MAX_TASKS));
 			return true;
 		}
 		return false;
@@ -606,6 +627,12 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 			return true;
 		}
 		return false;
+	}
+	else if (MATCH(option, L"detached"))
+	{
+		REQUIRE_NO_VALUE();
+		options::detached_console = true;
+		return true;
 	}
 	else if (MATCH(option, L"abort"))
 	{
@@ -856,6 +883,8 @@ static DWORD get_priority_class(const DWORD priority)
 //Start the next process
 static HANDLE start_next_process(std::wstring command)
 {
+	static const DWORD defaultFlags = CREATE_BREAKAWAY_FROM_JOB | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT;
+
 	if (options::force_use_shell)
 	{
 		std::wstringstream builder;
@@ -878,12 +907,14 @@ static HANDLE start_next_process(std::wstring command)
 		{
 			startup_info.dwFlags = startup_info.dwFlags | STARTF_USESTDHANDLES;
 			startup_info.hStdOutput = startup_info.hStdError = redir_file;
-
 		}
 	}
 
-	static const DWORD defaultFlags = CREATE_BREAKAWAY_FROM_JOB | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT;
 	DWORD flags = defaultFlags | get_priority_class(options::process_priority);
+	if (options::detached_console)
+	{
+		flags = flags | CREATE_NEW_CONSOLE;
+	}
 	
 	if (CreateProcessW(NULL, (LPWSTR)command.c_str(), NULL, NULL, (redir_file ? TRUE : FALSE), flags, NULL, NULL, &startup_info, &process_info))
 	{
@@ -911,10 +942,11 @@ static HANDLE start_next_process(std::wstring command)
 }
 
 //Wait for *any* running process to terminate
-static DWORD wait_for_process(bool &timeout)
+static DWORD wait_for_process(bool &timeout, bool &interrupted)
 {
-	DWORD index[MAXIMUM_WAIT_OBJECTS];
-	HANDLE handles[MAXIMUM_WAIT_OBJECTS];
+	DWORD index[MAX_TASKS];
+	HANDLE handles[MAX_TASKS+1];
+	
 	DWORD count = 0;
 	for (DWORD i = 0; i < options::max_instances; i++)
 	{
@@ -924,12 +956,23 @@ static DWORD wait_for_process(bool &timeout)
 			handles[count++] = g_processes[i];
 		}
 	}
+	if (g_interrupt_event)
+	{
+		handles[count] = g_interrupt_event;
+	}
+
 	if (count > 0)
 	{
-		const DWORD ret = WaitForMultipleObjects(count, &handles[0], FALSE, (options::process_timeout > 0) ? options::process_timeout : INFINITE);
+		const DWORD num_handels = g_interrupt_event ? (count + 1) : count;
+		const DWORD ret = WaitForMultipleObjects(num_handels, &handles[0], FALSE, (options::process_timeout > 0) ? options::process_timeout : INFINITE);
 		if ((ret >= WAIT_OBJECT_0) && (ret < WAIT_OBJECT_0 + count))
 		{
 			return index[ret - WAIT_OBJECT_0];
+		}
+		if (ret == WAIT_OBJECT_0 + count)
+		{
+			interrupted = true;
+			return MAXDWORD;
 		}
 		if ((ret == WAIT_TIMEOUT) && (options::process_timeout > 0))
 		{
@@ -938,6 +981,7 @@ static DWORD wait_for_process(bool &timeout)
 			return MAXDWORD;
 		}
 	}
+
 	puts_log(L"WaitForMultipleObjects() failed with Win32 error code: 0x%X.\n", GetLastError());
 	return MAXDWORD;
 }
@@ -946,14 +990,24 @@ static DWORD wait_for_process(bool &timeout)
 static int run_processes(void)
 {
 	DWORD slot = 0, exit_code = 0;
-	bool aborted = false;
+	bool aborted = false, interrupted = false;
 
 	//MAIN PROCESSING LOOP
-	while (!((g_queue.empty() && (g_process_count < 1)) || aborted))
+	while (!((g_queue.empty() && (g_process_count < 1)) || aborted || interrupted))
 	{
 		//Launch the next process(es)
 		while ((!g_queue.empty()) && (g_process_count < options::max_instances))
 		{
+			if (g_interrupt_event)
+			{
+				if (WaitForSingleObject(g_interrupt_event, 0) == WAIT_OBJECT_0)
+				{
+					exit_code = std::max(exit_code, DWORD(1));
+					interrupted = aborted = true;
+					my_print(L"\nERROR: Interrupted by user, exiting!\n\n");
+					break;
+				}
+			}
 			const std::wstring next_command = g_queue.front();
 			g_queue.pop();
 			if (const HANDLE process = start_next_process(next_command))
@@ -982,7 +1036,7 @@ static int run_processes(void)
 		if ((!aborted) && (g_process_count > 0) && ((g_process_count >= options::max_instances) || g_queue.empty()))
 		{
 			bool timeout = false;
-			const DWORD index = wait_for_process(timeout);
+			const DWORD index = wait_for_process(timeout, interrupted);
 			if (index != MAXDWORD)
 			{
 				g_process_count--;
@@ -1014,8 +1068,20 @@ static int run_processes(void)
 			{
 				if (timeout)
 				{
-					my_print(L"\nERROR: Timeout encountered, terminating process!\n\n");
+					my_print(L"\nERROR: Timeout encountered, terminating running process!\n\n");
 					terminate_processes();
+					if (options::abort_on_failure)
+					{
+						aborted = true;
+						break;
+					}
+				}
+				else if (interrupted)
+				{
+					exit_code = std::max(exit_code, DWORD(1));
+					aborted = true;
+					my_print(L"\nERROR: Interrupted by user, exiting!\n\n");
+					break;
 				}
 				else
 				{
@@ -1029,10 +1095,10 @@ static int run_processes(void)
 	}
 
 	//Wait for the pending processes
-	while (g_process_count > 0)
+	while ((g_process_count > 0) && (!interrupted))
 	{
 		bool timeout = false;
-		const DWORD index = wait_for_process(timeout);
+		const DWORD index = wait_for_process(timeout, interrupted);
 		if (index != MAXDWORD)
 		{
 			g_process_count--;
@@ -1061,17 +1127,24 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 {
 	//Initialize globals
 	g_logo_printed = false;
+	g_interrupt_event = NULL;
 	g_log_file = NULL;
 	g_job_object = NULL;
 	g_processes_completed = 0;
 	g_process_count = 0;
 
 	//Clear
-	memset(g_processes, 0, sizeof(HANDLE) * MAXIMUM_WAIT_OBJECTS);
-	memset(g_isrunning, 0, sizeof(bool)   * MAXIMUM_WAIT_OBJECTS);
+	memset(g_processes, 0, sizeof(HANDLE) * MAX_TASKS);
+	memset(g_isrunning, 0, sizeof(bool)   * MAX_TASKS);
 	
 	//Init options
 	reset_all_options();
+
+	//Create event
+	if (g_interrupt_event = CreateEventW(NULL, TRUE, FALSE, NULL))
+	{
+		SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
+	}
 
 	//Parse CLI arguments
 	if (!parse_arguments(argc, argv))
