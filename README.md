@@ -30,7 +30,7 @@ A slightly more advanced example, using a command pattern to express the above c
 
 Now let's read the output of the "dir" command to copy all "&ast;.jpg" file to "&ast;.jpg.v2":
 
-    dir /b *.jpg | MParallel.exe --shell --stdin --auto-quote --pattern="copy {{0}} {{0}}.v2"
+    dir /b *.jpg | MParallel.exe --shell --stdin --auto-wrap --pattern="copy {{0}} {{0}}.v2"
 
 Note that, in the last example, we need to use `--shell` option, because `copy` is a built-in shell function, **not** a program.
 
@@ -60,8 +60,11 @@ The following **MParallel** options are currently available:
 * `--out-path=<PATH>`  
   Redirect the STDOUT and STDERR of each sub-process to a file. MParallel will create a separate output file for each process in the **PATH** directory. File names are generated according to the `YYYYMMDD-HHMMSS-NNNNN.log` pattern. Note that directory **PATH** must be existing and writable. Also note that redirected outputs do *not* appear in the console!
 
-* `--auto-quote`  
+* `--auto-wrap`  
   Automatically wrap all tokens that contain any whitespace characters in quotation marks. This applies to the expansion of placeholders, when the `--pattern` option is used. For example, if the **N**-th command token contains `foo bar`, then `{{N}}` will be replaced by `"foo bar"` instead of `foo bar`. This option has *no* effect, if `--pattern` is *not* used.
+
+* `--ignore-spaces`  
+  Ignore whitespace characters when reading commands from a file. By default, when MParallel reads commands from a file or from the STDIN stream, each input line will be processed like a full command-line. This means that tokens within each line are *whitespace-delimited*, unless wrapped in quotation marks. If this option is set, *no* command-line splitting is performed on the input lines. Instead, each input line will be treated like *one* unbroken string.
 
 * `--shell`  
   Start each command inside a new sub-shell (cmd.exe). Running each command in a new sub-shell implies a certain overhead, which is why this behavior is *disabled* by default. However, you *must* use this option, if your command uses any *built-in* shell functions, such as `echo`, `dir` or `copy`. You also  *must* use this option, if your command contains any shell operators, such as the pipe operator (`|`) or one of the redirection operators (`>`, `<`, etc).
