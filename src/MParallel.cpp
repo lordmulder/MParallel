@@ -1246,11 +1246,11 @@ int wmain(const int argc, const wchar_t *const argv[])
 		_set_error_mode(_OUT_TO_STDERR);
 		_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 		_set_invalid_parameter_handler(my_invalid_parameter_handler);
+		setvbuf(stderr, NULL, _IONBF, 0);
 		FILE *file[3] = { stdin, stdout, stderr };
 		for (size_t i = 0; i < 3; i++)
 		{
 			_setmode(_fileno(file[i]), _O_U8TEXT);
-			setvbuf(file[i], NULL, _IONBF, 0);
 		}
 		return mparallel_main(argc, argv);
 	}
