@@ -47,25 +47,43 @@ const unsigned int MPARALLEL_VERSION_PATCH = 0;
 #define MATCH(X,Y) (_wcsicmp((X), (Y)) == 0)
 
 //Defaults
+static const UINT FATAL_EXIT_CODE = 666;
 static const wchar_t *const DEFAULT_SEP = L":";
-
-//Options
-static DWORD        g_option_max_instances;
-static DWORD        g_option_process_timeout;
-static bool         g_option_read_stdin_lines;
-static bool         g_option_auto_quote_vars;
-static bool         g_option_force_use_shell;
-static bool         g_option_abort_on_failure;
-static bool         g_option_print_manpage;
-static bool         g_option_enable_tracing;
-static bool         g_option_disable_outputs;
-static std::wstring g_option_separator;
-static std::wstring g_option_command_pattern;
-static std::wstring g_option_log_file_name;
-static std::wstring g_option_input_file_name;
 
 //Types
 typedef std::queue<std::wstring> queue_t;
+
+//Enum
+typedef enum _priority_t
+{
+	PRIORITY_LOWEST  = 0,
+	PRIORITY_LOWER   = 1,
+	PRIORITY_DEFAULT = 2,
+	PRIORITY_HIGHER  = 3,
+	PRIORITY_HIGHEST = 4
+}
+priority_t;
+
+//Options
+namespace options
+{
+	static DWORD        max_instances;
+	static DWORD        process_priority;
+	static DWORD        process_timeout;
+	static bool         read_stdin_lines;
+	static bool         auto_quote_vars;
+	static bool         force_use_shell;
+	static bool         abort_on_failure;
+	static bool         print_manpage;
+	static bool         enable_tracing;
+	static bool         disable_outputs;
+	static bool         disable_jobctrl;
+	static bool         ignore_exitcode;
+	static std::wstring separator;
+	static std::wstring command_pattern;
+	static std::wstring log_file_name;
+	static std::wstring input_file_name;
+}
 
 //Globals
 static queue_t g_queue;
@@ -74,6 +92,7 @@ static HANDLE  g_processes[MAXIMUM_WAIT_OBJECTS];
 static bool    g_isrunning[MAXIMUM_WAIT_OBJECTS];
 static DWORD   g_process_count;
 static DWORD   g_processes_completed;
+static HANDLE  g_job_object;
 static FILE*   g_log_file;
 
 // ==========================================================================
@@ -120,7 +139,7 @@ static bool get_current_time(wchar_t *const buffer, const size_t len)
 
 #define my_print(...) do \
 { \
-	if(!g_option_disable_outputs) \
+	if(!options::disable_outputs) \
 	{ \
 		if(!g_logo_printed) \
 		{ \
@@ -134,7 +153,7 @@ while(0)
 
 #define puts_log(FMT, ...) do \
 { \
-	if(g_option_enable_tracing) \
+	if(options::enable_tracing) \
 	{ \
 		PRINT(L"[TRACE] " FMT, __VA_ARGS__); \
 	} \
@@ -176,11 +195,18 @@ static void print_manpage(void)
 	my_print(L"  --auto-quote         Automatically wrap tokens in quotation marks\n");
 	my_print(L"  --shell              Start each command inside a new sub-shell (cmd.exe)\n");
 	my_print(L"  --timeout=<TIMEOUT>  Kill processes after TIMEOUT milliseconds\n");
+	my_print(L"  --priority=<VALUE>   Run commands with the specified process priority\n");
+	my_print(L"  --ignore-exitcode    Do NOT check the exit code of sub-processes\n");
 	my_print(L"  --abort              Abort batch, if any command failed to execute\n");
-	my_print(L"  --silent             Disable all textual messages, \"silent mode\"\n");
+	my_print(L"  --no-jobctrl         Do NOT add new sub-processes to job object\n");
+	my_print(L"  --silent             Disable all textual messages, aka \"silent mode\"\n");
 	my_print(L"  --trace              Enable more diagnostic outputs (for debugging only)\n");
 	my_print(L"  --help               Print this help screen\n");
 }
+
+// ==========================================================================
+// LOGGING
+// ==========================================================================
 
 static void open_log_file(const wchar_t *file_name)
 {
@@ -198,7 +224,7 @@ static void open_log_file(const wchar_t *file_name)
 		else
 		{
 			g_log_file = NULL;
-			my_print(L"ERROR: Failed to open log file \"%s\" for writing!\n\n", g_option_log_file_name.c_str());
+			my_print(L"ERROR: Failed to open log file \"%s\" for writing!\n\n", options::log_file_name.c_str());
 		}
 	}
 }
@@ -216,7 +242,7 @@ static void fatal_exit(const wchar_t *const error_message)
 		WriteFile(hStdErr, error_message, lstrlenW(error_message), &written, NULL);
 		FlushFileBuffers(hStdErr);
 	}
-	TerminateProcess(GetCurrentProcess(), 666);
+	TerminateProcess(GetCurrentProcess(), FATAL_EXIT_CODE);
 }
 
 static void my_invalid_parameter_handler(wchar_t const*, wchar_t const*, wchar_t const*, unsigned int, uintptr_t)
@@ -233,7 +259,7 @@ static bool parse_uint32(const wchar_t *str, DWORD &value)
 {
 	if (swscanf_s(str, L"%lu", &value) != 1)
 	{
-		g_option_disable_outputs = false;
+		options::disable_outputs = false;
 		my_print(L"ERROR: Argument \"%s\" doesn't look like a valid integer!\n\n", str);
 		return false;
 	}
@@ -299,7 +325,7 @@ static wchar_t *trim_str(wchar_t *str)
 { \
 	if ((!value) || (!value[0])) \
 	{ \
-		g_option_disable_outputs = false; \
+		options::disable_outputs = false; \
 		my_print(L"ERROR: Argumet for option \"--%s\" is missing!\n\n", option); \
 		return false; \
 	} \
@@ -310,12 +336,29 @@ while(0)
 { \
 	if (value && value[0]) \
 	{ \
-		g_option_disable_outputs = false; \
+		options::disable_outputs = false; \
 		my_print(L"ERROR: Excess argumet for option \"--%s\" encountred!\n\n", option); \
 		return false; \
 	} \
 } \
 while(0)
+
+//Load defaults
+static void reset_all_options(void)
+{
+	options::force_use_shell  = false;
+	options::read_stdin_lines = false;
+	options::auto_quote_vars  = false;
+	options::abort_on_failure = false;
+	options::enable_tracing   = false;
+	options::disable_outputs  = false;
+	options::disable_jobctrl  = false;
+	options::ignore_exitcode  = false;
+	options::separator        = DEFAULT_SEP;
+	options::max_instances    = processor_count();
+	options::process_timeout  = 0;
+	options::process_priority = PRIORITY_DEFAULT;
+}
 
 //Parse commands (simple)
 static void parse_commands_simple(const int argc, const wchar_t *const argv[], const int offset, const wchar_t *const separator)
@@ -371,7 +414,7 @@ static void parse_commands_pattern(const std::wstring &pattern, int argc, const 
 			
 			std::wstringstream placeholder;
 			placeholder << L"{{" << (k++) << L"}}";
-			if (g_option_auto_quote_vars && contains_whitespace(current))
+			if (options::auto_quote_vars && contains_whitespace(current))
 			{
 				std::wstringstream replacement;
 				replacement << L'"' << current << L'"';
@@ -407,9 +450,9 @@ static void parse_commands_pattern(const std::wstring &pattern, int argc, const 
 //Parse commands
 static void parse_commands(int argc, const wchar_t *const argv[], const int offset, const wchar_t *const separator)
 {
-	if (!g_option_command_pattern.empty())
+	if (!options::command_pattern.empty())
 	{
-		parse_commands_pattern(g_option_command_pattern, argc, argv, offset, separator);
+		parse_commands_pattern(options::command_pattern, argc, argv, offset, separator);
 	}
 	else
 	{
@@ -425,7 +468,7 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 	if (MATCH(option, L"pattern"))
 	{
 		REQUIRE_VALUE();
-		g_option_command_pattern = value;
+		options::command_pattern = value;
 		return true;
 	}
 	else if (MATCH(option, L"count"))
@@ -433,7 +476,7 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 		REQUIRE_VALUE();
 		if (parse_uint32(value, temp))
 		{
-			g_option_max_instances = BOUND(DWORD(1), temp, DWORD(MAXIMUM_WAIT_OBJECTS));
+			options::max_instances = BOUND(DWORD(1), temp, DWORD(MAXIMUM_WAIT_OBJECTS));
 			return true;
 		}
 		return false;
@@ -441,37 +484,37 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 	else if (MATCH(option, L"separator"))
 	{
 		REQUIRE_VALUE();
-		g_option_separator = value;
+		options::separator = value;
 		return true;
 	}
 	else if (MATCH(option, L"stdin"))
 	{
 		REQUIRE_NO_VALUE();
-		g_option_read_stdin_lines = true;
+		options::read_stdin_lines = true;
 		return true;
 	}
 	else if (MATCH(option, L"input"))
 	{
 		REQUIRE_VALUE();
-		g_option_input_file_name = value;
+		options::input_file_name = value;
 		return true;
 	}
 	else if (MATCH(option, L"logfile"))
 	{
 		REQUIRE_VALUE();
-		g_option_log_file_name = value;
+		options::log_file_name = value;
 		return true;
 	}
 	else if (MATCH(option, L"auto-quote"))
 	{
 		REQUIRE_NO_VALUE();
-		g_option_auto_quote_vars = true;
+		options::auto_quote_vars = true;
 		return true;
 	}
 	else if (MATCH(option, L"shell"))
 	{
 		REQUIRE_NO_VALUE();
-		g_option_force_use_shell = true;
+		options::force_use_shell = true;
 		return true;
 	}
 	else if (MATCH(option, L"timeout"))
@@ -479,7 +522,17 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 		REQUIRE_VALUE();
 		if (parse_uint32(value, temp))
 		{
-			g_option_process_timeout = temp;
+			options::process_timeout = temp;
+			return true;
+		}
+		return false;
+	}
+	else if (MATCH(option, L"priority"))
+	{
+		REQUIRE_VALUE();
+		if (parse_uint32(value, temp))
+		{
+			options::process_priority = BOUND(DWORD(PRIORITY_LOWEST), temp, DWORD(PRIORITY_HIGHEST));
 			return true;
 		}
 		return false;
@@ -487,29 +540,41 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 	else if (MATCH(option, L"abort"))
 	{
 		REQUIRE_NO_VALUE();
-		g_option_abort_on_failure = true;
+		options::abort_on_failure = true;
+		return true;
+	}
+	else if (MATCH(option, L"no-jobctrl"))
+	{
+		REQUIRE_NO_VALUE();
+		options::disable_jobctrl = true;
+		return true;
+	}
+	else if (MATCH(option, L"ignore-exitcode"))
+	{
+		REQUIRE_NO_VALUE();
+		options::ignore_exitcode = true;
 		return true;
 	}
 	else if (MATCH(option, L"trace"))
 	{
 		REQUIRE_NO_VALUE();
-		g_option_enable_tracing = true;
+		options::enable_tracing = true;
 		return true;
 	}
 	else if (MATCH(option, L"silent"))
 	{
 		REQUIRE_NO_VALUE();
-		g_option_disable_outputs = true;
+		options::disable_outputs = true;
 		return true;
 	}
 	else if (MATCH(option, L"help"))
 	{
 		REQUIRE_NO_VALUE();
-		g_option_print_manpage = true;
+		options::print_manpage = true;
 		return true;
 	}
 
-	g_option_disable_outputs = false;
+	options::disable_outputs = false;
 	my_print(L"ERROR: Unknown option \"--%s\" encountred!\n\n", option);
 	return false;
 }
@@ -546,27 +611,27 @@ static bool parse_arguments(const int argc, const wchar_t *const argv[])
 				{
 					return false;
 				}
-				if (g_option_print_manpage)
+				if (options::print_manpage)
 				{
-					g_option_disable_outputs = false;
+					options::disable_outputs = false;
 					break;
 				}
 			}
 			else
 			{
-				parse_commands(argc, argv, i, g_option_separator.c_str());
+				parse_commands(argc, argv, i, options::separator.c_str());
 				break;
 			}
 		}
 		else
 		{
-			parse_commands(argc, argv, --i, g_option_separator.c_str());
+			parse_commands(argc, argv, --i, options::separator.c_str());
 			break;
 		}
 	}
-	if (g_option_enable_tracing && g_option_disable_outputs)
+	if (options::enable_tracing && options::disable_outputs)
 	{
-		g_option_disable_outputs = false;
+		options::disable_outputs = false;
 		my_print(L"Error: Options \"--trace\" and \"--silent\" are mutually exclusive!\n\n");
 		return false;
 	}
@@ -627,7 +692,7 @@ static void print_win32_error(const wchar_t *const format, const DWORD error)
 //Terminate all running processes
 static void terminate_processes(void)
 {
-	for (DWORD i = 0; i < g_option_max_instances; i++)
+	for (DWORD i = 0; i < options::max_instances; i++)
 	{
 		if (g_isrunning[i])
 		{
@@ -640,10 +705,43 @@ static void terminate_processes(void)
 	}
 }
 
+//Create job object
+static HANDLE create_job_object(void)
+{
+	const HANDLE job_object = CreateJobObjectW(NULL, NULL);
+	if (job_object)
+	{
+		JOBOBJECT_EXTENDED_LIMIT_INFORMATION jobExtendedLimitInfo;
+		memset(&jobExtendedLimitInfo, 0, sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+		memset(&jobExtendedLimitInfo.BasicLimitInformation, 0, sizeof(JOBOBJECT_BASIC_LIMIT_INFORMATION));
+		jobExtendedLimitInfo.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
+		if (!SetInformationJobObject(job_object, JobObjectExtendedLimitInformation, &jobExtendedLimitInfo, sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)))
+		{
+			CloseHandle(job_object);
+			return NULL;
+		}
+	}
+	return job_object;
+}
+
+static DWORD get_priority_class(const DWORD priority)
+{
+	switch (options::process_priority)
+	{
+		case PRIORITY_LOWEST:  return IDLE_PRIORITY_CLASS;         break;
+		case PRIORITY_LOWER:   return BELOW_NORMAL_PRIORITY_CLASS; break;
+		case PRIORITY_DEFAULT: return NORMAL_PRIORITY_CLASS;       break;
+		case PRIORITY_HIGHER:  return ABOVE_NORMAL_PRIORITY_CLASS; break;
+		case PRIORITY_HIGHEST: return HIGH_PRIORITY_CLASS;         break;
+	}
+	my_print(L"WARNING: Unknown priority value %u specified!", priority);
+	return 0;
+}
+
 //Start the next process
 static HANDLE start_next_process(std::wstring command)
 {
-	if (g_option_force_use_shell)
+	if (options::force_use_shell)
 	{
 		std::wstringstream builder;
 		builder << L"cmd.exe /c \"" << command << L"\"";
@@ -658,8 +756,20 @@ static HANDLE start_next_process(std::wstring command)
 	PROCESS_INFORMATION process_info;
 	memset(&process_info, 0, sizeof(PROCESS_INFORMATION));
 
-	if (CreateProcessW(NULL, (LPWSTR)command.c_str(), NULL, NULL, FALSE, 0, NULL, NULL, &startup_info, &process_info))
+	static const DWORD defaultFlags = CREATE_BREAKAWAY_FROM_JOB | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT;
+	DWORD flags = defaultFlags;
+
+
+	if (CreateProcessW(NULL, (LPWSTR)command.c_str(), NULL, NULL, FALSE, flags, NULL, NULL, &startup_info, &process_info))
 	{
+		if (g_job_object)
+		{
+			if (!AssignProcessToJobObject(g_job_object, process_info.hProcess))
+			{
+				my_print(L"WARNING: Failed to assign process to job object!\n\n");
+			}
+		}
+		ResumeThread(process_info.hThread);
 		CloseHandle(process_info.hThread);
 		g_processes_completed++;
 		puts_log(L"Process 0x%X has been started.\n", process_info.dwProcessId);
@@ -679,7 +789,7 @@ static DWORD wait_for_process(bool &timeout)
 	DWORD index[MAXIMUM_WAIT_OBJECTS];
 	HANDLE handles[MAXIMUM_WAIT_OBJECTS];
 	DWORD count = 0;
-	for (DWORD i = 0; i < g_option_max_instances; i++)
+	for (DWORD i = 0; i < options::max_instances; i++)
 	{
 		if (g_isrunning[i])
 		{
@@ -689,15 +799,15 @@ static DWORD wait_for_process(bool &timeout)
 	}
 	if (count > 0)
 	{
-		const DWORD ret = WaitForMultipleObjects(count, &handles[0], FALSE, (g_option_process_timeout > 0) ? g_option_process_timeout : INFINITE);
+		const DWORD ret = WaitForMultipleObjects(count, &handles[0], FALSE, (options::process_timeout > 0) ? options::process_timeout : INFINITE);
 		if ((ret >= WAIT_OBJECT_0) && (ret < WAIT_OBJECT_0 + count))
 		{
 			return index[ret - WAIT_OBJECT_0];
 		}
-		if ((ret == WAIT_TIMEOUT) && (g_option_process_timeout > 0))
+		if ((ret == WAIT_TIMEOUT) && (options::process_timeout > 0))
 		{
 			timeout = true;
-			puts_log(L"WaitForMultipleObjects() failed with WAIT_TIMEOUT error! (dwMilliseconds = %u)\n", g_option_process_timeout);
+			puts_log(L"WaitForMultipleObjects() failed with WAIT_TIMEOUT error! (dwMilliseconds = %u)\n", options::process_timeout);
 			return MAXDWORD;
 		}
 	}
@@ -715,7 +825,7 @@ static int run_processes(void)
 	while (!((g_queue.empty() && (g_process_count < 1)) || aborted))
 	{
 		//Launch the next process(es)
-		while ((!g_queue.empty()) && (g_process_count < g_option_max_instances))
+		while ((!g_queue.empty()) && (g_process_count < options::max_instances))
 		{
 			const std::wstring next_command = g_queue.front();
 			g_queue.pop();
@@ -724,14 +834,14 @@ static int run_processes(void)
 				g_process_count++;
 				while (g_isrunning[slot])
 				{
-					slot = (slot + 1) % g_option_max_instances;
+					slot = (slot + 1) % options::max_instances;
 				}
 				g_processes[slot] = process;
 				g_isrunning[slot] = true;
 			}
 			else
 			{
-				if (g_option_abort_on_failure)
+				if (options::abort_on_failure)
 				{
 					exit_code = std::max(exit_code, DWORD(1));
 					aborted = true;
@@ -742,7 +852,7 @@ static int run_processes(void)
 		}
 
 		//Wait for one process to terminate
-		if ((!aborted) && (g_process_count > 0) && ((g_process_count >= g_option_max_instances) || g_queue.empty()))
+		if ((!aborted) && (g_process_count > 0) && ((g_process_count >= options::max_instances) || g_queue.empty()))
 		{
 			bool timeout = false;
 			const DWORD index = wait_for_process(timeout);
@@ -752,13 +862,17 @@ static int run_processes(void)
 				DWORD temp;
 				if (GetExitCodeProcess(g_processes[index], &temp))
 				{
-					puts_log(L"Process 0x%X terminated with error code 0x%X.\n", GetProcessId(g_processes[index]), temp);
 					exit_code = std::max(exit_code, temp);
-					if ((exit_code > 0) && g_option_abort_on_failure)
+					puts_log(L"Process 0x%X terminated with error code 0x%X.\n", GetProcessId(g_processes[index]), temp);
+					if ((temp != 0) && (!options::ignore_exitcode))
 					{
-						aborted = true;
-						my_print(L"\nERROR: Command failed, aborting! (ExitCode: %u)\n\n", exit_code);
-						break;
+						if (options::abort_on_failure)
+						{
+							aborted = true;
+							my_print(L"\nERROR: Command failed, aborting! (ExitCode: %u)\n\n", temp);
+							break;
+						}
+						my_print(L"\nERROR: The command has failed! (ExitCode: %u)\n\n", temp);
 					}
 				}
 				else
@@ -818,58 +932,53 @@ static int run_processes(void)
 
 static int mparallel_main(const int argc, const wchar_t *const argv[])
 {
-	//Initialize globals and options
+	//Initialize globals
 	g_logo_printed = false;
 	g_log_file = NULL;
-	g_option_force_use_shell = false;
-	g_option_read_stdin_lines = false;
-	g_option_auto_quote_vars = false;
-	g_option_abort_on_failure = false;
-	g_option_enable_tracing = false;
-	g_option_disable_outputs = false;
-	g_option_separator = DEFAULT_SEP;
-	g_option_max_instances = processor_count();
-	g_option_process_timeout = 0;
-	g_process_count = 0;
+	g_job_object = NULL;
 	g_processes_completed = 0;
+	g_process_count = 0;
 
 	//Clear
 	memset(g_processes, 0, sizeof(HANDLE) * MAXIMUM_WAIT_OBJECTS);
 	memset(g_isrunning, 0, sizeof(bool)   * MAXIMUM_WAIT_OBJECTS);
 	
+	//Init options
+	reset_all_options();
+
 	//Parse CLI arguments
 	if (!parse_arguments(argc, argv))
 	{
-		g_option_disable_outputs = false;
+		options::disable_outputs = false;
 		my_print(L"Failed to parse command-line arguments. Run with option \"--help\" for guidance!\n\n");
-		return EXIT_FAILURE;
+		return FATAL_EXIT_CODE;
 	}
 
 	//Print manpage?
-	if (g_option_print_manpage)
+	if (options::print_manpage)
 	{
 		print_manpage();
 		return EXIT_SUCCESS;
 	}
 
 	//Open log file
-	if (!g_option_log_file_name.empty())
+	if (!options::log_file_name.empty())
 	{
-		open_log_file(g_option_log_file_name.c_str());
+		open_log_file(options::log_file_name.c_str());
 	}
 
 	//Parse jobs from file
-	if (!g_option_input_file_name.empty())
+	if (!options::input_file_name.empty())
 	{
-		if (!parse_commands_file(g_option_input_file_name.c_str()))
+		if (!parse_commands_file(options::input_file_name.c_str()))
 		{
 			my_print(L"Failed to read commands from specified input file!\n\n");
-			return EXIT_FAILURE;
+			return FATAL_EXIT_CODE;
 		}
 	}
 
 	//Parse jobs from STDIN
-	if (g_option_read_stdin_lines)
+	if (options::read_stdin_lines)
 	{
 		parse_commands_file(stdin);
 	}
@@ -878,22 +987,41 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	if (g_queue.size() < 1)
 	{
 		my_print(L"Nothing to do. Run with option \"--help\" for guidance!\n\n");
-		return EXIT_FAILURE;
+		return FATAL_EXIT_CODE;
 	}
+
+	//No more logo after this point
+	g_logo_printed = true;
 
 	//Logging
 	puts_log(L"Commands in queue: %u\n", g_queue.size());
-	puts_log(L"Maximum parallel instances: %u\n", g_option_max_instances);
-	g_logo_printed = true;
+	puts_log(L"Maximum parallel instances: %u\n", options::max_instances);
+
+	//Create job object
+	if (!options::disable_jobctrl)
+	{
+		g_job_object = create_job_object();
+		if (!g_job_object)
+		{
+			my_print(L"WARNING: Failed to create the job object!\n\n");
+		}
+	}
 
 	//Run processes
 	const clock_t timestamp_enter = clock();
 	const int retval = run_processes();
 	const clock_t timestamp_leave = clock();
 
+	//Close the job object
+	if (g_job_object)
+	{
+		TerminateJobObject(g_job_object, FATAL_EXIT_CODE);
+		CloseHandle(g_job_object);
+	}
+
 	//Logging
 	const double total_time = double(timestamp_leave - timestamp_enter) / double(CLOCKS_PER_SEC);
-	my_print(L"\n--------\n\nExecuted %u commands in %.2f seconds.\n\n", g_processes_completed, total_time);
+	my_print(L"\n--------\n\nExecuted %u tasks in %.2f seconds.\n\n", g_processes_completed, total_time);
 
 	//Close the log file
 	if (g_log_file)
@@ -924,6 +1052,7 @@ int wmain(const int argc, const wchar_t *const argv[])
 	__except (1)
 	{
 		fatal_exit(L"\n\nFATAL: Unhandeled exception error!\n\n");
+		return FATAL_EXIT_CODE;
 	}
 }
 

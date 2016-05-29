@@ -66,8 +66,22 @@ The following **MParallel** options are currently available:
 * `--timeout=<TIMEOUT>`  
   Kill processes after **TIMEOUT** milliseconds. By default, each command is allowed to run for an infinite amount of time. If this option is set, a command will be *aborted* if it takes longer than the specified timeout interval. Note that (by default) if a command was aborted due to timeout, other pending commands will still get a chance to run.
 
+* `--priority=<VALUE>`  
+  Run the commands (sub-processes) with the specified process priority. This can be one of the following values:
+    - **0**: Lowest priority
+    - **1**: Lower than normal priority
+    - **2**: Default priority
+    - **3**: Higher than normal priority
+    - **4**: Highest priority
+  
 * `--abort`  
   Abort batch, if any command failed to execute. By default, if any command failed, e.g. because the process could *not* be created or because it returned a *non-zero* exit code, other pending commands will still get a chance to run. If this option is set, the whole batch (queue) will be aborted, as soon as one command has failed.
+
+* `--no-jobctrl`  
+  Do *not* add new sub-processes to job object. By default, MParallel adds all new sub-processes to a *Job Object*, which makes sure that all sub-processes will die immediately when the MParallel process is terminated. If this option is set, sub-processes are *not* added to the Job Object and may continue running after the MParallel was terminated.
+
+* `--ignore-exitcode`  
+  Do *not* check the exit code of sub-processes. By default, MParallel checks the exit code of each sub-process. It assumes that the command has *failed*, if the process returned a *non-zero* exit code. If any command failed, this will be reported and, if `--abort` is set, any pending commands will *not* be executed. Setting this option causes MParallel to *ignore* exit codes. However, a command is still considered to have failed, if the processes could *not* be created.
 
 * `--silent`  
   Disable all textual messages, also known as "silent mode". Note that *fatal* error messages may still appear under some circumstances. Also note that this option is mutually exclusive with the `--trace` option.
@@ -77,6 +91,11 @@ The following **MParallel** options are currently available:
 
 * `--help`  
   Print the help screen, also known as "manpage".
+
+
+# Exit Code
+
+MParallel returns `max(exitcode_1, exitcode_2, ..., exitcode_N)` as its exit code, where **exitcode_i** is the exit code that was returned by **i**-th sub-process. In general, a *zero* exit code indicates that all commands completed successfully, while a *non-zero* exit code indicates that at least one command has failed. Fatal errors are indicated by a **666** exit code.
 
 
 # License Terms #
