@@ -57,6 +57,9 @@ The following **MParallel** options are currently available:
 * `--logfile=<FILE>`  
   Save logfile to **FILE**. The logfile contains information about all processes that have been created an the result. By default, *no* logfile will be created. If the logfile already exists, MParallel *appends* to the existing file.
 
+* `--out-path=<PATH>`  
+  Redirect the STDOUT and STDERR of each sub-process to a file. MParallel will create a separate output file for each process in the **PATH** directory. File names are generated according to the `YYYYMMDD-HHMMSS-NNNNN.log` pattern. Note that directory **PATH** must be existing and writable. Also note that redirected outputs do *not* appear in the console!
+
 * `--auto-quote`  
   Automatically wrap all tokens that contain any whitespace characters in quotation marks. This applies to the expansion of placeholders, when the `--pattern` option is used. For example, if the **N**-th command token contains `foo bar`, then `{{N}}` will be replaced by `"foo bar"` instead of `foo bar`. This option has *no* effect, if `--pattern` is *not* used.
 

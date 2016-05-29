@@ -34,6 +34,8 @@ const unsigned int MPARALLEL_VERSION_PATCH = 0;
 #include <ctime>
 #include <io.h>
 #include <fcntl.h>
+#include <iomanip>
+#include <codecvt>
 
 //Win32
 #define NOMINMAX 1
@@ -83,6 +85,7 @@ namespace options
 	static std::wstring command_pattern;
 	static std::wstring log_file_name;
 	static std::wstring input_file_name;
+	static std::wstring redir_path_name;
 }
 
 //Globals
@@ -94,6 +97,20 @@ static DWORD   g_process_count;
 static DWORD   g_processes_completed;
 static HANDLE  g_job_object;
 static FILE*   g_log_file;
+
+// ==========================================================================
+// WIN32 SUPPORT
+// ==========================================================================
+
+#define CLOSE_HANDLE(X) do \
+{ \
+	if((X)) \
+	{ \
+		CloseHandle((X)); \
+		(X) = NULL; \
+	} \
+} \
+while(0)
 
 // ==========================================================================
 // SYSTEM INFO
@@ -121,14 +138,14 @@ static DWORD processor_count(void)
 // TIME UTILS
 // ==========================================================================
 
-static bool get_current_time(wchar_t *const buffer, const size_t len)
+static bool get_current_time(wchar_t *const buffer, const size_t len, const bool simple)
 {
 	time_t timer;
 	struct tm tm_info;
 	time(&timer);
 	if (localtime_s(&tm_info, &timer) == 0)
 	{
-		return (wcsftime(buffer, len, L"%Y:%m:%d %H:%M:%S", &tm_info) > 0);
+		return (wcsftime(buffer, len, simple ? L"%Y%m%d-%H%M%S" : L"%Y:%m:%d %H:%M:%S", &tm_info) > 0);
 	}
 	return false;
 }
@@ -160,7 +177,7 @@ while(0)
 	if (g_log_file) \
 	{ \
 		wchar_t time_buffer[32]; \
-		if (get_current_time(time_buffer, 32)) \
+		if (get_current_time(time_buffer, 32, false)) \
 		{ \
 			fwprintf(g_log_file, L"[%s] " FMT, time_buffer, __VA_ARGS__); \
 		} \
@@ -192,6 +209,7 @@ static void print_manpage(void)
 	my_print(L"  --input=<FILE>       Read additional commands from specified FILE\n");
 	my_print(L"  --stdin              Read additional commands from STDIN stream\n");
 	my_print(L"  --logfile=<FILE>     Save logfile to FILE, appends if the file exists\n");
+	my_print(L"  --out-path=<PATH>    Redirect the stdout/stderr of sub-processes to PATH\n");
 	my_print(L"  --auto-quote         Automatically wrap tokens in quotation marks\n");
 	my_print(L"  --shell              Start each command inside a new sub-shell (cmd.exe)\n");
 	my_print(L"  --timeout=<TIMEOUT>  Kill processes after TIMEOUT milliseconds\n");
@@ -202,6 +220,45 @@ static void print_manpage(void)
 	my_print(L"  --silent             Disable all textual messages, aka \"silent mode\"\n");
 	my_print(L"  --trace              Enable more diagnostic outputs (for debugging only)\n");
 	my_print(L"  --help               Print this help screen\n");
+}
+
+// ==========================================================================
+// FILE FUNCTIONS
+// ==========================================================================
+
+//Check for FS object existence
+static bool fs_object_exists(const wchar_t *const path)
+{
+	return (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES);
+}
+
+//Check for directory existence
+static bool directory_exists(const wchar_t *const path)
+{
+	const DWORD attributes = GetFileAttributesW(path);
+	return ((attributes != INVALID_FILE_ATTRIBUTES) && (attributes & FILE_ATTRIBUTE_DIRECTORY));
+}
+
+//Generate a unique file name
+static std::wstring generate_unique_filename(const wchar_t *const directory, const wchar_t *const ext)
+{
+	wchar_t time_buffer[32];
+	if (get_current_time(time_buffer, 32, true))
+	{
+		DWORD n = 0;
+		std::wstringstream file_name;
+		do
+		{
+			if (n > 0xFFFFF)
+			{
+				return std::wstring(); /*deadlock prevention*/
+			}
+			file_name.str(std::wstring());
+			file_name << directory << L'\\' << time_buffer << L'-' << std::setfill(L'0') << std::setw(5) << std::hex << (n++) << ext;
+		} while (fs_object_exists(file_name.str().c_str()));
+		return file_name.str();
+	}
+	return std::wstring();
 }
 
 // ==========================================================================
@@ -315,6 +372,13 @@ static wchar_t *trim_str(wchar_t *str)
 		break;
 	}
 	return str;
+}
+
+//Wide string to UTF-8 string
+static std::string wstring_to_utf8(const std::wstring& str)
+{
+	std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
+	return myconv.to_bytes(str);
 }
 
 // ==========================================================================
@@ -505,6 +569,12 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 		options::log_file_name = value;
 		return true;
 	}
+	else if (MATCH(option, L"out-path"))
+	{
+		REQUIRE_VALUE();
+		options::redir_path_name = value;
+		return true;
+	}
 	else if (MATCH(option, L"auto-quote"))
 	{
 		REQUIRE_NO_VALUE();
@@ -595,6 +665,31 @@ static bool parse_option_string(const wchar_t *const option_str)
 	}
 }
 
+//Validate options
+static bool validate_options(void)
+{
+	if (options::enable_tracing && options::disable_outputs)
+	{
+		options::disable_outputs = false;
+		my_print(L"Error: Options \"--trace\" and \"--silent\" are mutually exclusive!\n\n");
+		return false;
+	}
+	if (!options::redir_path_name.empty())
+	{
+		if (!directory_exists(options::redir_path_name.c_str()))
+		{
+			CreateDirectoryW(options::redir_path_name.c_str(), NULL);
+			if (!directory_exists(options::redir_path_name.c_str()))
+			{
+				options::disable_outputs = false;
+				my_print(L"Error: Specified output directory \"%s\" does NOT exist!\n\n", options::redir_path_name.c_str());
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
 //Parse arguments
 static bool parse_arguments(const int argc, const wchar_t *const argv[])
 {
@@ -629,13 +724,7 @@ static bool parse_arguments(const int argc, const wchar_t *const argv[])
 			break;
 		}
 	}
-	if (options::enable_tracing && options::disable_outputs)
-	{
-		options::disable_outputs = false;
-		my_print(L"Error: Options \"--trace\" and \"--silent\" are mutually exclusive!\n\n");
-		return false;
-	}
-	return true;
+	return validate_options();
 }
 
 //Read from file stream
@@ -698,7 +787,7 @@ static void terminate_processes(void)
 		{
 			g_process_count--;
 			TerminateProcess(g_processes[i], 666);
-			CloseHandle(g_processes[i]);
+			CLOSE_HANDLE(g_processes[i]);
 			g_isrunning[i] = false;
 			g_processes[i] = NULL;
 		}
@@ -724,6 +813,32 @@ static HANDLE create_job_object(void)
 	return job_object;
 }
 
+//Create redirection file
+static HANDLE create_redirection_file(const wchar_t *const directory, const wchar_t *const command)
+{
+	const std::wstring file_name = generate_unique_filename(directory, L".log");
+	if (!file_name.empty())
+	{
+		SECURITY_ATTRIBUTES sec_attrib;
+		memset(&sec_attrib, 0, sizeof(SECURITY_ATTRIBUTES));
+		sec_attrib.bInheritHandle = TRUE;
+		sec_attrib.nLength = sizeof(SECURITY_ATTRIBUTES);
+		const HANDLE handle = CreateFileW(file_name.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sec_attrib, CREATE_ALWAYS, 0, NULL);
+		if (handle != INVALID_HANDLE_VALUE)
+		{
+			static const char *const BOM = "\xef\xbb\xbf", *const EOL = "\r\n\r\n";
+			const std::string command_utf8 = wstring_to_utf8(command);
+			DWORD written;
+			WriteFile(handle, BOM, strlen(BOM), &written, NULL);
+			WriteFile(handle, command_utf8.c_str(), command_utf8.size(), &written, NULL);
+			WriteFile(handle, EOL, strlen(EOL), &written, NULL);
+			return handle;
+		}
+	}
+	return NULL;
+}
+
+//Translate to Win32 priority class
 static DWORD get_priority_class(const DWORD priority)
 {
 	switch (options::process_priority)
@@ -756,11 +871,21 @@ static HANDLE start_next_process(std::wstring command)
 	PROCESS_INFORMATION process_info;
 	memset(&process_info, 0, sizeof(PROCESS_INFORMATION));
 
+	HANDLE redir_file = NULL;
+	if (!options::redir_path_name.empty())
+	{
+		if (redir_file = create_redirection_file(options::redir_path_name.c_str(), command.c_str()))
+		{
+			startup_info.dwFlags = startup_info.dwFlags | STARTF_USESTDHANDLES;
+			startup_info.hStdOutput = startup_info.hStdError = redir_file;
+
+		}
+	}
+
 	static const DWORD defaultFlags = CREATE_BREAKAWAY_FROM_JOB | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT;
-	DWORD flags = defaultFlags;
-
-
-	if (CreateProcessW(NULL, (LPWSTR)command.c_str(), NULL, NULL, FALSE, flags, NULL, NULL, &startup_info, &process_info))
+	DWORD flags = defaultFlags | get_priority_class(options::process_priority);
+	
+	if (CreateProcessW(NULL, (LPWSTR)command.c_str(), NULL, NULL, (redir_file ? TRUE : FALSE), flags, NULL, NULL, &startup_info, &process_info))
 	{
 		if (g_job_object)
 		{
@@ -770,7 +895,8 @@ static HANDLE start_next_process(std::wstring command)
 			}
 		}
 		ResumeThread(process_info.hThread);
-		CloseHandle(process_info.hThread);
+		CLOSE_HANDLE(redir_file);
+		CLOSE_HANDLE(process_info.hThread);
 		g_processes_completed++;
 		puts_log(L"Process 0x%X has been started.\n", process_info.dwProcessId);
 		return process_info.hProcess;
@@ -780,6 +906,7 @@ static HANDLE start_next_process(std::wstring command)
 	puts_log(L"CreateProcessW() failed with Win32 error code: 0x%X.\n", error);
 	print_win32_error(L"\nProcess creation has failed: %s\n", error);
 	my_print(L"ERROR: Process ``%s´´could not be created!\n\n", command.c_str());
+	CLOSE_HANDLE(redir_file);
 	return NULL;
 }
 
@@ -879,7 +1006,7 @@ static int run_processes(void)
 				{
 					puts_log(L"Exit code for process 0x%X could not be determined.\n", GetProcessId(g_processes[index]));
 				}
-				CloseHandle(g_processes[index]);
+				CLOSE_HANDLE(g_processes[index]);
 				g_processes[index] = NULL;
 				g_isrunning[index] = false;
 			}
@@ -909,7 +1036,7 @@ static int run_processes(void)
 		if (index != MAXDWORD)
 		{
 			g_process_count--;
-			CloseHandle(g_processes[index]);
+			CLOSE_HANDLE(g_processes[index]);
 			g_processes[index] = NULL;
 			g_isrunning[index] = false;
 		}
@@ -1016,7 +1143,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	if (g_job_object)
 	{
 		TerminateJobObject(g_job_object, FATAL_EXIT_CODE);
-		CloseHandle(g_job_object);
+		CLOSE_HANDLE(g_job_object);
 	}
 
 	//Logging
