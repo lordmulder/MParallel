@@ -10,6 +10,7 @@ REM Windows specific
 set "MSVC_PATH=C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC"
 set "PDOC_PATH=C:\Program Files (x86)\Pandoc"
 set "GIT2_PATH=C:\Program Files\Git\bin"
+set "UPX3_PATH=C:\Program Files (x86)\UPX"
 
 REM ///////////////////////////////////////////////////////////////////////////
 REM // Check paths
@@ -67,6 +68,8 @@ MSBuild.exe /property:Platform=x86 /property:Configuration=Release /target:Clean
 if not "!ERRORLEVEL!"=="0" goto BuildHasFailed
 MSBuild.exe /property:Platform=x86 /property:Configuration=Release /target:Rebuild "%~dp0\MParallel.sln"
 if not "!ERRORLEVEL!"=="0" goto BuildHasFailed
+
+"%UPX3_PATH%\upx.exe" --best "%~dp0\bin\Win32\Release\MParallel.exe"
 
 
 REM ///////////////////////////////////////////////////////////////////////////

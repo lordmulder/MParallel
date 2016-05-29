@@ -119,16 +119,21 @@ while(0)
 // SYSTEM INFO
 // ==========================================================================
 
-static DWORD my_popcount(DWORD number)
+static DWORD my_popcount(DWORD64 number)
 {
-	number = number - ((number >> 1) & 0x55555555);
-	number = (number & 0x33333333) + ((number >> 2) & 0x33333333);
-	return (((number + (number >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24;
+	static const DWORD64 m1 = 0x5555555555555555;
+	static const DWORD64 m2 = 0x3333333333333333;
+	static const DWORD64 m4 = 0x0f0f0f0f0f0f0f0f;
+	static const DWORD64 h0 = 0x0101010101010101;
+	number -= (number >> 1) & m1;
+	number = (number & m2) + ((number >> 2) & m2);
+	number = (number + (number >> 4)) & m4;
+	return DWORD((number * h0) >> 56);
 }
 
 static DWORD processor_count(void)
 {
-	DWORD procMask, sysMask;
+	DWORD_PTR procMask, sysMask;
 	if (GetProcessAffinityMask(GetCurrentProcess(), &procMask, &sysMask))
 	{
 		const DWORD count = my_popcount(procMask);
@@ -856,9 +861,9 @@ static HANDLE create_redirection_file(const wchar_t *const directory, const wcha
 			static const char *const BOM = "\xef\xbb\xbf", *const EOL = "\r\n\r\n";
 			const std::string command_utf8 = wstring_to_utf8(command);
 			DWORD written;
-			WriteFile(handle, BOM, strlen(BOM), &written, NULL);
-			WriteFile(handle, command_utf8.c_str(), command_utf8.size(), &written, NULL);
-			WriteFile(handle, EOL, strlen(EOL), &written, NULL);
+			WriteFile(handle, BOM, (DWORD)strlen(BOM), &written, NULL);
+			WriteFile(handle, command_utf8.c_str(), (DWORD)command_utf8.size(), &written, NULL);
+			WriteFile(handle, EOL, (DWORD)strlen(EOL), &written, NULL);
 			return handle;
 		}
 	}
@@ -1194,7 +1199,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	g_logo_printed = true;
 
 	//Logging
-	puts_log(L"Commands in queue: %u\n", g_queue.size());
+	puts_log(L"Commands in queue: %zu\n", g_queue.size());
 	puts_log(L"Maximum parallel instances: %u\n", options::max_instances);
 
 	//Create job object
