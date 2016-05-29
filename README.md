@@ -48,11 +48,14 @@ The following **MParallel** options are currently available:
 * `--separator=<SEP>`  
   Set the command separator to **SEP**. The separator string is used to delimit the distinct commands, when they are passed to MParallel on the command-line. By default, a single colon character (`:`) is used as separator, but any suitable character sequence may be specified here. Note that **SEP** is *not* used for reading commands from a file or from the STDIN. When reading from a file or from the STDIN, there must be one command per line.
 
-* `--input=FILE`  
+* `--input=<FILE>`  
   Read additional commands from the specified **FILE**. The specified **FILE** needs to be a plain text file, containing one command per line. If the file contains any *non*-US-ASCII, it is expected to be in *UTF-8* text encoding.
 
 * `--stdin`  
   Read additional commands from **STDIN** stream. The data passed on the STDIN needs to be plain text, containing one command per line. If the stream contains any *non*-US-ASCII, the *UTF-8* text encoding is assumed.
+
+* `--logfile=<FILE>`  
+  Save logfile to **FILE**. The logfile contains information about all processes that have been created an the result. By default, *no* logfile will be created. If the logfile already exists, MParallel *appends* to the existing file.
 
 * `--auto-quote`  
   Automatically wrap all tokens that contain any whitespace characters in quotation marks. This applies to the expansion of placeholders, when the `--pattern` option is used. For example, if the **N**-th command token contains `foo bar`, then `{{N}}` will be replaced by `"foo bar"` instead of `foo bar`. This option has *no* effect, if `--pattern` is *not* used.

@@ -61,6 +61,7 @@ static bool         g_option_enable_tracing;
 static bool         g_option_disable_outputs;
 static std::wstring g_option_separator;
 static std::wstring g_option_command_pattern;
+static std::wstring g_option_log_file_name;
 static std::wstring g_option_input_file_name;
 
 //Types
@@ -73,6 +74,7 @@ static HANDLE  g_processes[MAXIMUM_WAIT_OBJECTS];
 static bool    g_isrunning[MAXIMUM_WAIT_OBJECTS];
 static DWORD   g_process_count;
 static DWORD   g_processes_completed;
+static FILE*   g_log_file;
 
 // ==========================================================================
 // SYSTEM INFO
@@ -97,6 +99,22 @@ static DWORD processor_count(void)
 }
 
 // ==========================================================================
+// TIME UTILS
+// ==========================================================================
+
+static bool get_current_time(wchar_t *const buffer, const size_t len)
+{
+	time_t timer;
+	struct tm tm_info;
+	time(&timer);
+	if (localtime_s(&tm_info, &timer) == 0)
+	{
+		return (wcsftime(buffer, len, L"%Y:%m:%d %H:%M:%S", &tm_info) > 0);
+	}
+	return false;
+}
+
+// ==========================================================================
 // TEXT OUTPUT
 // ==========================================================================
 
@@ -114,13 +132,18 @@ static DWORD processor_count(void)
 } \
 while(0)
 
-#define my_trace(...) do \
+#define puts_log(FMT, ...) do \
 { \
-	if(!g_option_disable_outputs) \
+	if(g_option_enable_tracing) \
 	{ \
-		if(g_option_enable_tracing) \
+		PRINT(L"[TRACE] " FMT, __VA_ARGS__); \
+	} \
+	if (g_log_file) \
+	{ \
+		wchar_t time_buffer[32]; \
+		if (get_current_time(time_buffer, 32)) \
 		{ \
-			PRINT(L"[TRACE] " __VA_ARGS__); \
+			fwprintf(g_log_file, L"[%s] " FMT, time_buffer, __VA_ARGS__); \
 		} \
 	} \
 } \
@@ -147,8 +170,9 @@ static void print_manpage(void)
 	my_print(L"  --count=<N>          Run at most N instances in parallel (Default is %u)\n", processor_count());
 	my_print(L"  --pattern=<PATTERN>  Generate commands from the specified PATTERN\n");
 	my_print(L"  --separator=<SEP>    Set the command separator to SEP (Default is '%s')\n", DEFAULT_SEP);
-	my_print(L"  --input=FILE         Read additional commands from specified FILE\n");
+	my_print(L"  --input=<FILE>       Read additional commands from specified FILE\n");
 	my_print(L"  --stdin              Read additional commands from STDIN stream\n");
+	my_print(L"  --logfile=<FILE>     Save logfile to FILE, appends if the file exists\n");
 	my_print(L"  --auto-quote         Automatically wrap tokens in quotation marks\n");
 	my_print(L"  --shell              Start each command inside a new sub-shell (cmd.exe)\n");
 	my_print(L"  --timeout=<TIMEOUT>  Kill processes after TIMEOUT milliseconds\n");
@@ -156,6 +180,27 @@ static void print_manpage(void)
 	my_print(L"  --silent             Disable all textual messages, \"silent mode\"\n");
 	my_print(L"  --trace              Enable more diagnostic outputs (for debugging only)\n");
 	my_print(L"  --help               Print this help screen\n");
+}
+
+static void open_log_file(const wchar_t *file_name)
+{
+	if (!g_log_file)
+	{
+		if (_wfopen_s(&g_log_file, file_name, L"a") == 0)
+		{
+			_setmode(_fileno(g_log_file), _O_U8TEXT);
+			_fseeki64(g_log_file, 0, SEEK_END);
+			if (_ftelli64(g_log_file) > 0)
+			{
+				fwprintf(g_log_file, L"---------------------\n");
+			}
+		}
+		else
+		{
+			g_log_file = NULL;
+			my_print(L"ERROR: Failed to open log file \"%s\" for writing!\n\n", g_option_log_file_name.c_str());
+		}
+	}
 }
 
 // ==========================================================================
@@ -280,7 +325,7 @@ static void parse_commands_simple(const int argc, const wchar_t *const argv[], c
 	while (i < argc)
 	{
 		const wchar_t *const current = argv[i++];
-		my_trace("Process token: %s\n", current);
+		puts_log("Process token: %s\n", current);
 		if ((!separator) || wcscmp(current, separator))
 		{
 			if (command_buffer.tellp())
@@ -320,7 +365,7 @@ static void parse_commands_pattern(const std::wstring &pattern, int argc, const 
 	while (i < argc)
 	{
 		const wchar_t *const current = argv[i++];
-		my_trace("Process token: %s\n", current);
+		puts_log("Process token: %s\n", current);
 		if ((!separator) || wcscmp(current, separator))
 		{
 			
@@ -411,6 +456,12 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 		g_option_input_file_name = value;
 		return true;
 	}
+	else if (MATCH(option, L"logfile"))
+	{
+		REQUIRE_VALUE();
+		g_option_log_file_name = value;
+		return true;
+	}
 	else if (MATCH(option, L"auto-quote"))
 	{
 		REQUIRE_NO_VALUE();
@@ -488,7 +539,7 @@ static bool parse_arguments(const int argc, const wchar_t *const argv[])
 		const wchar_t *const current = argv[i++];
 		if ((current[0] == L'-') && (current[1] == L'-'))
 		{
-			my_trace("Process token: %s\n", current);
+			puts_log("Process token: %s\n", current);
 			if (current[2])
 			{
 				if (!parse_option_string(&current[2]))
@@ -532,7 +583,7 @@ static void parse_commands_file(FILE *const input)
 		const wchar_t *const trimmed = trim_str(line_buffer);
 		if (trimmed && trimmed[0])
 		{
-			my_trace("Read line: %s\n", trimmed);
+			puts_log("Read line: %s\n", trimmed);
 			wchar_t *const *const argv = CommandLineToArgvW(trimmed, &argc);
 			if (!argv)
 			{
@@ -599,7 +650,7 @@ static HANDLE start_next_process(std::wstring command)
 		command = builder.str();
 	}
 
-	my_trace(L"Starting process: %s\n", command.c_str());
+	puts_log(L"Starting process: %s\n", command.c_str());
 
 	STARTUPINFOW startup_info;
 	memset(&startup_info, 0, sizeof(STARTUPINFOW));
@@ -611,12 +662,12 @@ static HANDLE start_next_process(std::wstring command)
 	{
 		CloseHandle(process_info.hThread);
 		g_processes_completed++;
-		my_trace(L"Process 0x%X has been started.\n", process_info.dwProcessId);
+		puts_log(L"Process 0x%X has been started.\n", process_info.dwProcessId);
 		return process_info.hProcess;
 	}
 
 	const DWORD error = GetLastError();
-	my_trace(L"CreateProcessW() failed with Win32 error code: 0x%X.\n", error);
+	puts_log(L"CreateProcessW() failed with Win32 error code: 0x%X.\n", error);
 	print_win32_error(L"\nProcess creation has failed: %s\n", error);
 	my_print(L"ERROR: Process ``%s´´could not be created!\n\n", command.c_str());
 	return NULL;
@@ -645,12 +696,12 @@ static DWORD wait_for_process(bool &timeout)
 		}
 		if ((ret == WAIT_TIMEOUT) && (g_option_process_timeout > 0))
 		{
-			my_trace(L"WaitForMultipleObjects() failed with WAIT_TIMEOUT error!\n");
 			timeout = true;
+			puts_log(L"WaitForMultipleObjects() failed with WAIT_TIMEOUT error! (dwMilliseconds = %u)\n", g_option_process_timeout);
 			return MAXDWORD;
 		}
 	}
-	my_trace(L"WaitForMultipleObjects() failed with Win32 error code: 0x%X.\n", GetLastError());
+	puts_log(L"WaitForMultipleObjects() failed with Win32 error code: 0x%X.\n", GetLastError());
 	return MAXDWORD;
 }
 
@@ -701,7 +752,7 @@ static int run_processes(void)
 				DWORD temp;
 				if (GetExitCodeProcess(g_processes[index], &temp))
 				{
-					my_trace(L"Process 0x%X terminated with error code 0x%X.\n", GetProcessId(g_processes[index]), temp);
+					puts_log(L"Process 0x%X terminated with error code 0x%X.\n", GetProcessId(g_processes[index]), temp);
 					exit_code = std::max(exit_code, temp);
 					if ((exit_code > 0) && g_option_abort_on_failure)
 					{
@@ -712,7 +763,7 @@ static int run_processes(void)
 				}
 				else
 				{
-					my_trace(L"Exit code for process 0x%X could not be determined.\n", GetProcessId(g_processes[index]));
+					puts_log(L"Exit code for process 0x%X could not be determined.\n", GetProcessId(g_processes[index]));
 				}
 				CloseHandle(g_processes[index]);
 				g_processes[index] = NULL;
@@ -769,6 +820,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 {
 	//Initialize globals and options
 	g_logo_printed = false;
+	g_log_file = NULL;
 	g_option_force_use_shell = false;
 	g_option_read_stdin_lines = false;
 	g_option_auto_quote_vars = false;
@@ -800,6 +852,12 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 		return EXIT_SUCCESS;
 	}
 
+	//Open log file
+	if (!g_option_log_file_name.empty())
+	{
+		open_log_file(g_option_log_file_name.c_str());
+	}
+
 	//Parse jobs from file
 	if (!g_option_input_file_name.empty())
 	{
@@ -823,9 +881,9 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 		return EXIT_FAILURE;
 	}
 
-	//Tracing
-	my_trace(L"Commands in queue: %u\n", g_queue.size());
-	my_trace(L"Maximum parallel instances: %u\n", g_option_max_instances);
+	//Logging
+	puts_log(L"Commands in queue: %u\n", g_queue.size());
+	puts_log(L"Maximum parallel instances: %u\n", g_option_max_instances);
 	g_logo_printed = true;
 
 	//Run processes
@@ -837,6 +895,13 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	const double total_time = double(timestamp_leave - timestamp_enter) / double(CLOCKS_PER_SEC);
 	my_print(L"\n--------\n\nExecuted %u commands in %.2f seconds.\n\n", g_processes_completed, total_time);
 
+	//Close the log file
+	if (g_log_file)
+	{
+		fclose(g_log_file);
+		g_log_file = NULL;
+	}
+
 	return retval;
 }
 
@@ -845,9 +910,15 @@ int wmain(const int argc, const wchar_t *const argv[])
 	SetErrorMode(SetErrorMode(0x3) | 0x3);
 	__try
 	{
+		_set_error_mode(_OUT_TO_STDERR);
+		_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 		_set_invalid_parameter_handler(my_invalid_parameter_handler);
-		int filenos[] = { _fileno(stderr), _fileno(stdout), _fileno(stdin), -1 };
-		for (int i = 0; filenos[i] >= 0; i++) _setmode(filenos[i], _O_U8TEXT);
+		FILE *file[3] = { stdin, stdout, stderr };
+		for (size_t i = 0; i < 3; i++)
+		{
+			_setmode(_fileno(file[i]), _O_U8TEXT);
+			setvbuf(file[i], NULL, _IONBF, 0);
+		}
 		return mparallel_main(argc, argv);
 	}
 	__except (1)
