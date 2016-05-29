@@ -1,5 +1,7 @@
-/obj
-/bin
-*.suo
 *.VC.db
+*.suo
+/*.html
 /*.opendb
+/bin
+/obj
+/out
