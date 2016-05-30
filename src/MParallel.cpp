@@ -53,6 +53,7 @@ static const UINT FATAL_EXIT_CODE = 666;
 static const wchar_t *const DEFAULT_SEP = L":";
 static const size_t MAX_TASKS = MAXIMUM_WAIT_OBJECTS - 1;
 static const wchar_t *const FILE_DELIMITERS = L"/\\:";
+static const wchar_t *const BLANK_STR = L"";
 
 //Types
 typedef std::queue<std::wstring> queue_t;
@@ -273,52 +274,53 @@ static std::wstring generate_unique_filename(const wchar_t *const directory, con
 	return std::wstring();
 }
 
-//Get only file name
-static std::wstring get_file_name(const wchar_t *const file_name)
+//Get full path
+static std::wstring get_full_path(const wchar_t *const rel_path)
 {
-	std::wstring str(file_name);
-	const std::size_t found = str.find_last_of(FILE_DELIMITERS);
-	if (found != std::wstring::npos)
+	wchar_t path_buffer[MAX_PATH];
+	if (const wchar_t *const full_path = _wfullpath(path_buffer, rel_path, MAX_PATH))
 	{
-		return str.substr(found + 1);
+		return std::wstring(full_path);
 	}
-	return str;
-}
-
-//Get only file extensions
-static std::wstring get_file_base(const wchar_t *const file_name)
-{
-	std::wstring str(get_file_name(file_name));
-	const std::size_t found = str.find_last_of(L'.');
-	if (found != std::wstring::npos)
+	else
 	{
-		return str.substr(0, found);
-	}
-	return str;
-}
-
-//Get only file path
-static std::wstring get_file_path(const wchar_t *const file_name)
-{
-	std::wstring str(file_name);
-	const std::size_t found = str.find_last_of(FILE_DELIMITERS);
-	if (found != std::wstring::npos)
-	{
-		return str.substr(0, found);
-	}
-	return str;
-}
-
-//Get only file extensions
-static std::wstring get_file_extn(const wchar_t *const file_name)
-{
-	std::wstring str(get_file_name(file_name));
-	const std::size_t found = str.find_last_of(L'.');
-	if (found != std::wstring::npos)
-	{
-		return str.substr(found + 1);
+		if (const wchar_t *const full_path_malloced = _wfullpath(NULL, rel_path, 0))
+		{
+			std::wstring result(full_path_malloced);
+			free((void*)full_path_malloced);
+			return result;
+		}
 	}
 	return std::wstring();
+}
+
+//Split path into components
+static bool split_file_name(const wchar_t *const full_path, std::wstring &drive, std::wstring &dir, std::wstring &fname, std::wstring &ext)
+{
+	wchar_t buff_drive[_MAX_DRIVE], buff_dir[_MAX_DIR], buff_fname[_MAX_FNAME], buff_ext[_MAX_EXT];
+	const errno_t ret = _wsplitpath_s(full_path, buff_drive, buff_dir, buff_fname, buff_ext);
+	if(ret == 0)
+	{
+		drive = buff_drive; dir = buff_dir; fname = buff_fname; ext = buff_ext;
+		return true;
+	}
+	else if (ret == ERANGE)
+	{
+		const size_t len = std::max(size_t(MAX_PATH), wcslen(full_path)) + 128U;
+		bool success = false;
+		wchar_t* tmp_drive = new wchar_t[len], *tmp_dir = new wchar_t[len], *tmp_fname = new wchar_t[len], *tmp_ext = new wchar_t[len];
+		if (_wsplitpath_s(full_path, tmp_drive, len, tmp_dir, len, tmp_fname, len, tmp_ext, len) == 0)
+		{
+			drive = tmp_drive; dir = tmp_dir; fname = tmp_fname; ext = tmp_ext;
+			success = true;
+		}
+		delete[] tmp_drive; delete[] tmp_dir; delete[] tmp_fname; delete[] tmp_ext;
+		return success;
+	}
+	else
+	{
+		return false; /*failed the hard way*/
+	}
 }
 
 // ==========================================================================
@@ -473,7 +475,7 @@ static DWORD expand_placeholder(std::wstring &str, const DWORD n, const wchar_t 
 		placeholder << L"{{" << n << L"}}";
 	}
 
-	if (options::auto_quote_vars && contains_whitespace(value))
+	if (options::auto_quote_vars && ((!value) || (!value[0]) || contains_whitespace(value)))
 	{
 		std::wstringstream replacement;
 		replacement << L'"' << value << L'"';
@@ -536,12 +538,26 @@ static void parse_commands_pattern(const std::wstring &pattern, int argc, const 
 		puts_log("Process token: %s\n", current);
 		if ((!separator) || wcscmp(current, separator))
 		{
+			static const wchar_t *const TYPES = L"FDPNX";
 			DWORD expanded = 0;
 			expanded += expand_placeholder(command_buffer, var_idx, 0x00, current);
-			expanded += expand_placeholder(command_buffer, var_idx, L'N', get_file_name(current).c_str());
-			expanded += expand_placeholder(command_buffer, var_idx, L'B', get_file_base(current).c_str());
-			expanded += expand_placeholder(command_buffer, var_idx, L'P', get_file_path(current).c_str());
-			expanded += expand_placeholder(command_buffer, var_idx, L'X', get_file_extn(current).c_str());
+			const std::wstring file_full = get_full_path(current);
+			if (!file_full.empty())
+			{
+				expanded += expand_placeholder(command_buffer, var_idx, TYPES[0], file_full.c_str());
+				std::wstring file_drive, file_dir, file_fname, file_ext;
+				if (split_file_name(file_full.c_str(), file_drive, file_dir, file_fname, file_ext))
+				{
+					expanded += expand_placeholder(command_buffer, var_idx, TYPES[1], file_drive.c_str());
+					expanded += expand_placeholder(command_buffer, var_idx, TYPES[2], file_dir.c_str());
+					expanded += expand_placeholder(command_buffer, var_idx, TYPES[3], file_fname.c_str());
+					expanded += expand_placeholder(command_buffer, var_idx, TYPES[4], file_ext.c_str());
+				}
+			}
+			for (DWORD i = 0; TYPES[i]; i++)
+			{
+				expanded += expand_placeholder(command_buffer, var_idx, TYPES[i], BLANK_STR);
+			}
 			if(expanded < 1)
 			{
 				my_print(L"WARNING: Discarding token \"%s\", due to missing {{%u}} placeholder!\n\n", current, var_idx);

@@ -20,23 +20,37 @@ The *first* form takes commands directly from the command-line, delimited by col
 
 # Examples
 
-This basic example uses **MParallel** to run multiple "ping" commands in parallel:
+The best way to get started with **MParallel** is looking at some examples:
 
-    MParallel.exe ping.exe -n 16 fsf.org : ping.exe -n 16 gnu.org : ping.exe -n 16 github.com
+1. This basic example uses MParallel to run *multiple* "ping" commands *in parallel*:
 
-A slightly more advanced example, using a *command pattern* to express the above command-line more elegantly:
+       MParallel.exe --count=3 ping.exe -n 16 fsf.org : ping.exe -n 16 gnu.org : ping.exe -n 16 w3c.org
 
-    MParallel.exe --pattern="ping.exe -n 16 {{0}}" fsf.org : gnu.org : github.com
+   Note how the distinct commands and their related arguments are delimited by colon (`:`) characters. Also note howthe  command-line options specific to MParallel have to go *before* the very first command string.
 
-It is also possible to read your commands (or the parameters for your command pattern) from a file:
 
-    MParallel.exe --input=my_commands.txt
+2. A slightly more advanced example, using a *command pattern* to express the above command-line more elegantly:
 
-Now let's read the output of the "dir" command to copy all "&ast;.jpg" file to "&ast;.jpg.v2":
+       MParallel.exe --count=3--pattern="ping.exe -n 16 {{0}}" fsf.org : gnu.org : w3c.org
 
-    dir /b *.jpg | MParallel.exe --shell --stdin ---pattern="copy {{0}} {{0}}.v2"
+   Note that, in this example, the `{{0}}` placeholder will be replaced with the corresponding command tokens.
 
-Note that, in the last example, we need to use `--shell` option, because `copy` is a built-in shell function, **not** a program. Also note that we may need to add `--no-split-lines` and `--auto-wrap` to properly handle file names containing spaces!
+3. It is also possible to read your commands (or the parameters for your command pattern) from a text file:
+
+       MParallel.exe --count=3 --input=my_commands.txt
+
+   The content of the file "my_commands.txt" may look like this, for example:
+
+       ping.exe -n 16 fsf.org
+       ping.exe -n 16 gnu.org
+       ping.exe -n 16 w3c.org
+
+
+4. Now let's read the output of the "dir" command to *copy* all "&ast;.jpg" files in the current directory to "&ast;.png":
+
+       dir /b *.jpg | MParallel.exe --shell --stdin ---pattern="copy {{0}} {{0:N}}.png"
+
+   Note that here we need to use the `--shell` option, because `copy` is a built-in shell function. Also note that we would need to add `--no-split-lines` and `--auto-wrap` in order to correctly handle file names containing spaces!
 
 
 # Options
@@ -47,7 +61,7 @@ The following **MParallel** options are currently available:
   Run at most **N** instances in parallel. MParallel will start **N** commands in parallel, provided that there are at least **N** commands in the queue. If there are *less* than **N** commands in the queue, it will start as many commands in parallel as there are in the queue. If there are *more* than **N** commands in the queue, MParallel will start the first **N** commands in parallel and, at each time that any of the running commands completes, it will start the next command. This way, always **N** commands will be running in parallel, unless the queue is running empty. Note that **N** defaults to the number of available processors (CPU cores), if *not* specified explicitly &ndash; taking into account the processor affinity mask.
 
 * `--pattern=<PATTERN>`  
-  Generate commands from the specified **PATTERN** string. If a pattern has been specified, the commands given on the command-line, read from a file or read from the STDIN will *not* be executed "as-is". Instead, they will be interpreted as parameters for the given **PATTERN** string. For this purpose, the **PATTERN** string should contain placeholders in the `{{k}}` form. Placeholders of that from will be replaced by the **k**-th command-token. Note that the placeholder indices **k** are *zero-based*, i.e.use `{{0}}`, `{{1}}`, `{{2}}` and so on . In addition, if the **k**-th command-token contains a file path, the placeholders `{{k:N}}`, `{{k:B}}`, `{{k:P}}` and `{{k:X}}` will be replaced with the file's *name*, *basename*, *dirname* and *suffix*, respectively. See also the `--auto-wrap` option, when working with command patterns.
+  Generate commands from the specified **PATTERN** string. If a pattern has been specified, the commands given on the command-line, read from a file or read from the STDIN will *not* be executed "as-is". Instead, any given command-tokens will be interpreted as *parameters* for the given **PATTERN** string. For this purpose, the **PATTERN** string should contain placeholders in the `{{k}}` form. Placeholders of that from will be replaced by the **k**-th command-token. Note that the placeholder indices **k** are *zero-based*, i.e.use `{{0}}`, `{{1}}`, `{{2}}` and so on. In addition, if the **k**-th command-token represents a valid file path, the placeholders `{{k:F}}`, `{{k:D}}`, `{{k:P}}`, `{{k:N}}` and `{{k:X}}` will be replaced with the file's *full path* (expanded relative to working directory), *drive letter* (with trailing colon), *directory name* (with trailing backslash), *file name* (without extension) and *extension* (including dot), respectively. Excess command-tokens are discarded! See also the `--auto-wrap` option, when working with command patterns.
 
 * `--separator=<SEP>`  
   Set the command separator to **SEP**. The separator string is used to delimit the distinct commands, when they are passed to MParallel on the command-line. By default, a single colon character (`:`) is used as separator, but any suitable character sequence may be specified here. Note that **SEP** is *not* used for reading commands from a file or from the STDIN. When reading from a file or from the STDIN, there must be one command per line.
