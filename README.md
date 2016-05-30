@@ -22,102 +22,128 @@ The *first* form takes commands directly from the command-line, delimited by col
 
 The best way to get started with **MParallel** is looking at some examples:
 
-1. This basic example uses MParallel to run *multiple* "ping" commands *in parallel*:
+## Example 1
 
-       MParallel.exe --count=3 ping.exe -n 16 fsf.org : ping.exe -n 16 gnu.org : ping.exe -n 16 w3c.org
+This basic example uses MParallel to run *multiple* "ping" commands *in parallel*:
 
-   Note how the distinct commands and their related arguments are delimited by colon (`:`) characters. Also note howthe  command-line options specific to MParallel have to go *before* the very first command string.
+    MParallel.exe --count=3 ping.exe -n 16 fsf.org : ping.exe -n 16 gnu.org : ping.exe -n 16 w3c.org
 
+Note how the distinct commands and their related arguments are delimited by colon (`:`) characters. Also note howthe  command-line options specific to MParallel have to go *before* the very first command string.
 
-2. A slightly more advanced example, using a *command pattern* to express the above command-line more elegantly:
+## Example 2
 
-       MParallel.exe --count=3--pattern="ping.exe -n 16 {{0}}" fsf.org : gnu.org : w3c.org
+A slightly more advanced example, using a *command pattern* to express the above command-line more elegantly:
 
-   Note that, in this example, the `{{0}}` placeholder will be replaced with the corresponding command tokens.
+    MParallel.exe --count=3--pattern="ping.exe -n 16 {{0}}" fsf.org : gnu.org : w3c.org
 
-3. It is also possible to read your commands (or the parameters for your command pattern) from a text file:
+Note that, in this example, the `{{0}}` placeholder will be replaced with the corresponding command tokens.
 
-       MParallel.exe --count=3 --input=my_commands.txt
+## Example 3
 
-   The content of the file "my_commands.txt" may look like this, for example:
+It is also possible to read your commands (or the parameters for your command pattern) from a text file:
 
-       ping.exe -n 16 fsf.org
-       ping.exe -n 16 gnu.org
-       ping.exe -n 16 w3c.org
+    MParallel.exe --count=3 --input=my_commands.txt
 
+The content of the file "my_commands.txt" may look like this, for example:
 
-4. Now let's read the output of the "dir" command to *copy* all "&ast;.jpg" files in the current directory to "&ast;.png":
+    ping.exe -n 16 fsf.org
+    ping.exe -n 16 gnu.org
+    ping.exe -n 16 w3c.org
 
-       dir /b *.jpg | MParallel.exe --shell --stdin ---pattern="copy {{0}} {{0:N}}.png"
+## Example 4
 
-   Note that here we need to use the `--shell` option, because `copy` is a built-in shell function. Also note that we would need to add `--no-split-lines` and `--auto-wrap` in order to correctly handle file names containing spaces!
+Now let's read the output of the "dir" command to *copy* all "&ast;.jpg" files in the current directory to "&ast;.png":
+
+   dir /b *.jpg | MParallel.exe --shell --stdin ---pattern="copy {{0}} {{0:N}}.png"
+
+Note that here we need to use the `--shell` option, because `copy` is a built-in shell function. Also note that we would need to add `--no-split-lines` and `--auto-wrap` in order to correctly handle file names containing spaces!
 
 
 # Options
 
 The following **MParallel** options are currently available:
 
-* `--count=<N>`  
-  Run at most **N** instances in parallel. MParallel will start **N** commands in parallel, provided that there are at least **N** commands in the queue. If there are *less* than **N** commands in the queue, it will start as many commands in parallel as there are in the queue. If there are *more* than **N** commands in the queue, MParallel will start the first **N** commands in parallel and, at each time that any of the running commands completes, it will start the next command. This way, always **N** commands will be running in parallel, unless the queue is running empty. Note that **N** defaults to the number of available processors (CPU cores), if *not* specified explicitly &ndash; taking into account the processor affinity mask.
+## `--count=<N>`
 
-* `--pattern=<PATTERN>`  
-  Generate commands from the specified **PATTERN** string. If a pattern has been specified, the commands given on the command-line, read from a file or read from the STDIN will *not* be executed "as-is". Instead, any given command-tokens will be interpreted as *parameters* for the given **PATTERN** string. For this purpose, the **PATTERN** string should contain placeholders in the `{{k}}` form. Placeholders of that from will be replaced by the **k**-th command-token. Note that the placeholder indices **k** are *zero-based*, i.e.use `{{0}}`, `{{1}}`, `{{2}}` and so on. In addition, if the **k**-th command-token represents a valid file path, the placeholders `{{k:F}}`, `{{k:D}}`, `{{k:P}}`, `{{k:N}}` and `{{k:X}}` will be replaced with the file's *full path* (expanded relative to working directory), *drive letter* (with trailing colon), *directory name* (with trailing backslash), *file name* (without extension) and *extension* (including dot), respectively. Excess command-tokens are discarded! See also the `--auto-wrap` option, when working with command patterns.
+Run at most **N** instances in parallel. MParallel will start **N** commands in parallel, provided that there are at least **N** commands in the queue. If there are *less* than **N** commands in the queue, it will start as many commands in parallel as there are in the queue. If there are *more* than **N** commands in the queue, MParallel will start the first **N** commands in parallel and, at each time that any of the running commands completes, it will start the next command. This way, always **N** commands will be running in parallel, unless the queue is running empty. Note that **N** defaults to the number of available processors (CPU cores), if *not* specified explicitly &ndash; taking into account the processor affinity mask.
 
-* `--separator=<SEP>`  
-  Set the command separator to **SEP**. The separator string is used to delimit the distinct commands, when they are passed to MParallel on the command-line. By default, a single colon character (`:`) is used as separator, but any suitable character sequence may be specified here. Note that **SEP** is *not* used for reading commands from a file or from the STDIN. When reading from a file or from the STDIN, there must be one command per line.
+## `--pattern=<PATTERN>`
 
-* `--input=<FILE>`  
-  Read additional commands from the specified **FILE**. The specified **FILE** needs to be a plain text file, containing one command per line. If the file contains any *non*-US-ASCII, it is expected to be in *UTF-8* text encoding.
+Generate commands from the specified **PATTERN** string. If a pattern has been specified, the commands given on the command-line, read from a file or read from the STDIN will *not* be executed "as-is". Instead, any given command-tokens will be interpreted as *parameters* for the given **PATTERN** string. For this purpose, the **PATTERN** string should contain placeholders in the `{{k}}` form. Placeholders of that from will be replaced by the **k**-th command-token. Note that the placeholder indices **k** are *zero-based*, i.e.use `{{0}}`, `{{1}}`, `{{2}}` and so on. In addition, if the **k**-th command-token represents a valid file path, the placeholders `{{k:F}}`, `{{k:D}}`, `{{k:P}}`, `{{k:N}}` and `{{k:X}}` will be replaced with the file's *full path* (expanded relative to working directory), *drive letter* (with trailing colon), *directory name* (with trailing backslash), *file name* (without extension) and *extension* (including dot), respectively. Excess command-tokens are discarded! See also the `--auto-wrap` option, when working with command patterns.
 
-* `--stdin`  
-  Read additional commands from **STDIN** stream. The data passed on the STDIN needs to be plain text, containing one command per line. If the stream contains any *non*-US-ASCII, the *UTF-8* text encoding is assumed.
+## `--separator=<SEP>`
 
-* `--logfile=<FILE>`  
-  Save logfile to **FILE**. The logfile contains information about all processes that have been created an the result. By default, *no* logfile will be created. If the logfile already exists, MParallel *appends* to the existing file.
+Set the command separator to **SEP**. The separator string is used to delimit the distinct commands, when they are passed to MParallel on the command-line. By default, a single colon character (`:`) is used as separator, but any suitable character sequence may be specified here. Note that **SEP** is *not* used for reading commands from a file or from the STDIN. When reading from a file or from the STDIN, there must be one command per line.
 
-* `--out-path=<PATH>`  
-  Redirect the STDOUT and STDERR of each sub-process to a file. MParallel will create a separate output file for each process in the **PATH** directory. File names are generated according to the `YYYYMMDD-HHMMSS-NNNNN.log` pattern. Note that directory **PATH** must be existing and writable. Also note that redirected outputs do *not* appear in the console!
+## `--input=<FILE>`
 
-* `--auto-wrap`  
-  Automatically wrap all tokens that contain any whitespace characters in quotation marks. This applies to the expansion of placeholders, when the `--pattern` option is used. For example, if the **N**-th command token contains `foo bar`, then `{{N}}` will be replaced by `"foo bar"` instead of `foo bar`. This option has *no* effect, if `--pattern` is *not* used.
+Read additional commands from the specified **FILE**. The specified **FILE** needs to be a plain text file, containing one command per line. If the file contains any *non*-US-ASCII, it is expected to be in *UTF-8* text encoding.
 
-* `--no-split-lines`  
-  Ignore whitespace characters when reading commands from a file. By default, when MParallel reads commands from a file or from the STDIN stream, each input line will be processed like a full command-line. This means that tokens within each line are *whitespace-delimited*, unless wrapped in quotation marks. If this option is set, *no* command-line splitting is performed on the input lines. Instead, each input line will be treated like *one* unbroken string.
+## `--stdin`
 
-* `--shell`  
-  Start each command inside a new sub-shell (cmd.exe). Running each command in a new sub-shell implies a certain overhead, which is why this behavior is *disabled* by default. However, you *must* use this option, if your command uses any *built-in* shell functions, such as `echo`, `dir` or `copy`. You also  *must* use this option, if your command contains any shell operators, such as the pipe operator (`|`) or one of the redirection operators (`>`, `<`, etc).
+Read additional commands from **STDIN** stream. The data passed on the STDIN needs to be plain text, containing one command per line. If the stream contains any *non*-US-ASCII, the *UTF-8* text encoding is assumed.
 
-* `--timeout=<TIMEOUT>`  
+## `--logfile=<FILE>`
+
+Save logfile to **FILE**. The logfile contains information about all processes that have been created an the result. By default, *no* logfile will be created. If the logfile already exists, MParallel *appends* to the existing file.
+
+## `--out-path=<PATH>`
+
+Redirect the STDOUT and STDERR of each sub-process to a file. MParallel will create a separate output file for each process in the **PATH** directory. File names are generated according to the `YYYYMMDD-HHMMSS-NNNNN.log` pattern. Note that directory **PATH** must be existing and writable. Also note that redirected outputs do *not* appear in the console!
+
+## `--auto-wrap`
+
+Automatically wrap all tokens that contain any whitespace characters in quotation marks. This applies to the expansion of placeholders, when the `--pattern` option is used. For example, if the **N**-th command token contains `foo bar`, then `{{N}}` will be replaced by `"foo bar"` instead of `foo bar`. This option has *no* effect, if `--pattern` is *not* used.
+
+## `--no-split-lines`
+
+Ignore whitespace characters when reading commands from a file. By default, when MParallel reads commands from a file or from the STDIN stream, each input line will be processed like a full command-line. This means that tokens within each line are *whitespace-delimited*, unless wrapped in quotation marks. If this option is set, *no* command-line splitting is performed on the input lines. Instead, each input line will be treated like *one* unbroken string.
+
+## `--shell`
+
+Start each command inside a new sub-shell (cmd.exe). Running each command in a new sub-shell implies a certain overhead, which is why this behavior is *disabled* by default. However, you *must* use this option, if your command uses any *built-in* shell functions, such as `echo`, `dir` or `copy`. You also  *must* use this option, if your command contains any shell operators, such as the pipe operator (`|`) or one of the redirection operators (`>`, `<`, etc).
+
+## `--timeout=<TIMEOUT>`
+
   Kill processes after **TIMEOUT** milliseconds. By default, each command is allowed to run for an infinite amount of time. If this option is set, a command will be *aborted* if it takes longer than the specified timeout interval. Note that (by default) if a command was aborted due to timeout, other pending commands will still get a chance to run.
 
-* `--priority=<VALUE>`  
-  Run the commands (sub-processes) with the specified process priority. This can be one of the following values:
-    - **0**: Lowest priority
-    - **1**: Lower than normal priority
-    - **2**: Default priority
-    - **3**: Higher than normal priority
-    - **4**: Highest priority
+## `--priority=<VALUE>`
 
-* `--detached`  
-  Run each sub-process in a *separate* console window. By default, all sub-processes are connected to the *same* console window as the main MParallel process. Thus, output from all processes will appear in the same console window, in an "interleaved" fashion. With this option set, each sub-process gets a separate console window.
+Run the commands (sub-processes) with the specified process priority. This can be one of the following values:
 
-* `--abort`  
-  Abort batch, if any command failed to execute. By default, if any command failed, e.g. because the process could *not* be created or because it returned a *non-zero* exit code, other pending commands will still get a chance to run. If this option is set, the whole batch (queue) will be aborted, as soon as one command has failed.
+- **0**: Lowest priority
+- **1**: Lower than normal priority
+- **2**: Default priority
+- **3**: Higher than normal priority
+- **4**: Highest priority
 
-* `--no-jobctrl`  
-  Do *not* add new sub-processes to job object. By default, MParallel adds all new sub-processes to a *Job Object*, which makes sure that all sub-processes will die immediately when the MParallel process is terminated. If this option is set, sub-processes are *not* added to the Job Object and may continue running after the MParallel was terminated.
+## `--detached`
 
-* `--ignore-exitcode`  
-  Do *not* check the exit code of sub-processes. By default, MParallel checks the exit code of each sub-process. It assumes that the command has *failed*, if the process returned a *non-zero* exit code. If any command failed, this will be reported and, if `--abort` is set, any pending commands will *not* be executed. Setting this option causes MParallel to *ignore* exit codes. However, a command is still considered to have failed, if the processes could *not* be created.
+Run each sub-process in a *separate* console window. By default, all sub-processes are connected to the *same* console window as the main MParallel process. Thus, output from all processes will appear in the same console window, in an "interleaved" fashion. With this option set, each sub-process gets a separate console window.
 
-* `--silent`  
-  Disable all textual messages, also known as "silent mode". Note that *fatal* error messages may still appear under some circumstances. Also note that this option is mutually exclusive with the `--trace` option.
+## `--abort`
 
-* `--trace`  
-  Enable more diagnostic outputs. This will print, e.g., the full command-line and the exit code for each task, which can be helpful for debugging purposes. Note that this option is mutually exclusive with the `--silent` option.
+Abort batch, if any command failed to execute. By default, if any command failed, e.g. because the process could *not* be created or because it returned a *non-zero* exit code, other pending commands will still get a chance to run. If this option is set, the whole batch (queue) will be aborted, as soon as one command has failed.
 
-* `--help`  
-  Print the help screen, also known as "manpage".
+## `--no-jobctrl`
+
+Do *not* add new sub-processes to job object. By default, MParallel adds all new sub-processes to a *Job Object*, which makes sure that all sub-processes will die immediately when the MParallel process is terminated. If this option is set, sub-processes are *not* added to the Job Object and may continue running after the MParallel was terminated.
+
+## `--ignore-exitcode`
+
+Do *not* check the exit code of sub-processes. By default, MParallel checks the exit code of each sub-process. It assumes that the command has *failed*, if the process returned a *non-zero* exit code. If any command failed, this will be reported and, if `--abort` is set, any pending commands will *not* be executed. Setting this option causes MParallel to *ignore* exit codes. However, a command is still considered to have failed, if the processes could *not* be created.
+
+## `--silent`
+
+Disable all textual messages, also known as "silent mode". Note that *fatal* error messages may still appear under some circumstances. Also note that this option is mutually exclusive with the `--trace` option.
+
+## `--trace`
+
+Enable more diagnostic outputs. This will print, e.g., the full command-line and the exit code for each task, which can be helpful for debugging purposes. Note that this option is mutually exclusive with the `--silent` option.
+
+## `--help`
+
+Print the help screen, also known as "manpage".
 
 
 # Exit Code
@@ -132,6 +158,8 @@ The following **MParallel** options are currently available:
 * <https://github.com/lordmulder/MParallel.git>
 
 * <https://bitbucket.org/lord_mulder/mparallel.git>
+
+* <https://git.assembla.com/mparallel.git>
 
 
 # License Terms #
