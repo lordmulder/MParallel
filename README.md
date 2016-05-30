@@ -54,7 +54,7 @@ The content of the file "my_commands.txt" may look like this, for example:
 
 Now let's read the output of the "dir" command to *copy* all "&ast;.jpg" files in the current directory to "&ast;.png":
 
-   dir /b *.jpg | MParallel.exe --shell --stdin ---pattern="copy {{0}} {{0:N}}.png"
+    dir /b *.jpg | MParallel.exe --shell --stdin ---pattern="copy {{0}} {{0:N}}.png"
 
 Note that here we need to use the `--shell` option, because `copy` is a built-in shell function. Also note that we would need to add `--no-split-lines` and `--auto-wrap` in order to correctly handle file names containing spaces!
 
