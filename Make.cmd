@@ -64,12 +64,16 @@ REM ///////////////////////////////////////////////////////////////////////////
 
 call "%MSVC_PATH%\vcvarsall.bat"
 
-MSBuild.exe /property:Platform=x86 /property:Configuration=Release /target:Clean   "%~dp0\MParallel.sln"
-if not "!ERRORLEVEL!"=="0" goto BuildHasFailed
-MSBuild.exe /property:Platform=x86 /property:Configuration=Release /target:Rebuild "%~dp0\MParallel.sln"
-if not "!ERRORLEVEL!"=="0" goto BuildHasFailed
+for %%p in (x86,x64) do (
+	for %%t in (Clean,Rebuild,Build) do (
+		MSBuild.exe /property:Platform=%%p /property:Configuration=Release /target:%%t "%~dp0\MParallel.sln"
+		if not "!ERRORLEVEL!"=="0" goto BuildHasFailed
+	)
+)
 
-"%UPX3_PATH%\upx.exe" --best "%~dp0\bin\Win32\Release\MParallel.exe"
+for %%p in (Win32,x64) do (
+	"%UPX3_PATH%\upx.exe" --best "%~dp0\bin\%%p\Release\MParallel.exe"
+)
 
 
 REM ///////////////////////////////////////////////////////////////////////////
@@ -90,13 +94,15 @@ set COUNTER=
 set REVISON=
 
 :GenerateOutfileNameNext
-set "OUT_PATH_BIN=%~dp0\out\mparallel.%ISO_DATE%%REVISON%.bin-win32.zip"
+set "OUT_PATH_X86=%~dp0\out\mparallel.%ISO_DATE%%REVISON%.bin-win32.zip"
+set "OUT_PATH_X64=%~dp0\out\mparallel.%ISO_DATE%%REVISON%.bin-win64.zip"
 set "OUT_PATH_SRC=%~dp0\out\mparallel.%ISO_DATE%%REVISON%.src.tgz"
 
 set /a COUNTER=COUNTER+1
 set REVISON=.update-%COUNTER%
 
-if exist "%OUT_PATH_BIN%" goto GenerateOutfileNameNext
+if exist "%OUT_PATH_X86%" goto GenerateOutfileNameNext
+if exist "%OUT_PATH_X64%" goto GenerateOutfileNameNext
 if exist "%OUT_PATH_SRC%" goto GenerateOutfileNameNext
 
 
@@ -106,7 +112,9 @@ REM ///////////////////////////////////////////////////////////////////////////
 
 "%~dp0\etc\cecho.exe" YELLOW "\n========[ PACKAGING ]========\n"
 
-"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_BIN%" "%~dp0\bin\Win32\Release\MParallel.exe" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
+"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X86%" "%~dp0\bin\Win32\Release\MParallel.exe" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
+"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X64%" "%~dp0\bin\x64\.\Release\MParallel.exe" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
+
 "%GIT2_PATH%\git.exe" archive --format tar.gz -9 --verbose --output "%OUT_PATH_SRC%" HEAD
 
 
