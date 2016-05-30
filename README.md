@@ -159,6 +159,12 @@ The following **MParallel** options are currently available:
 **<http://www.gnu.org/licenses/gpl-2.0.html>**
 
 
+# Acknowledgement
+
+Using **Application Lightning Icon**, created by *Fatcow Web Hosting*  
+License: CC Attribution 4.0 license  
+(Backlink to <http://www.fatcow.com/free-icons> required)
+
 &nbsp;  
 
 e.o.f.

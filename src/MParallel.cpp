@@ -19,11 +19,7 @@
 // http://www.gnu.org/licenses/gpl-2.0.txt
 //////////////////////////////////////////////////////////////////////////////////
 
-
-//Version
-const unsigned int MPARALLEL_VERSION_MAJOR = 1;
-const unsigned int MPARALLEL_VERSION_MINOR = 0;
-const unsigned int MPARALLEL_VERSION_PATCH = 0;
+#include "MParallel.h"
 
 //CRT
 #include <string>

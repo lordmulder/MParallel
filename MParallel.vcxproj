@@ -21,6 +21,12 @@
   <ItemGroup>
     <ClCompile Include="src\MParallel.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="MParallel.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\MParallel.h" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{CAD9F40C-2FC1-4E9D-AFAF-4E5888C4D0E2}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
