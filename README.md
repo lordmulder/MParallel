@@ -28,7 +28,7 @@ This basic example uses MParallel to run *multiple* "ping" commands *in parallel
 
     MParallel.exe --count=3 ping.exe -n 16 fsf.org : ping.exe -n 16 gnu.org : ping.exe -n 16 w3c.org
 
-Note how the distinct commands and their related arguments are delimited by colon (`:`) characters. Also note howthe  command-line options specific to MParallel have to go *before* the very first command string.
+Note how the distinct commands and their related arguments are delimited by colon (`:`) characters. Also note how the  command-line options specific to MParallel have to go *before* the very first command string.
 
 ## Example 2
 
@@ -69,7 +69,11 @@ Run at most **N** instances in parallel. MParallel will start **N** commands in 
 
 ## `--pattern=<PATTERN>`
 
-Generate commands from the specified **PATTERN** string. If a pattern has been specified, the commands given on the command-line, read from a file or read from the STDIN will *not* be executed "as-is". Instead, any given command-tokens will be interpreted as *parameters* for the given **PATTERN** string. For this purpose, the **PATTERN** string should contain placeholders in the `{{k}}` form. Placeholders of that from will be replaced by the **k**-th command-token. Note that the placeholder indices **k** are *zero-based*, i.e.use `{{0}}`, `{{1}}`, `{{2}}` and so on. In addition, if the **k**-th command-token represents a valid file path, the placeholders `{{k:F}}`, `{{k:D}}`, `{{k:P}}`, `{{k:N}}` and `{{k:X}}` will be replaced with the file's *full path* (expanded relative to working directory), *drive letter* (with trailing colon), *directory name* (with trailing backslash), *file name* (without extension) and *extension* (including dot), respectively. Excess command-tokens are discarded! See also the `--auto-wrap` option, when working with command patterns.
+Generate commands from the specified **PATTERN** string. If a **PATTERN** string has been specified, the commands passed to MParallel on the command-line, read from a file or read from the STDIN stream will *not* be executed "as-is". Instead, any given command-tokens will then be interpreted as input *parameters* for transforming the given **PATTERN** string.
+
+The **PATTERN** string should contain placeholders in the `{{k}}` form. Placeholders of that from will be replaced by the **k**-th command-token. Note that the placeholder indices **k** are *zero-based*, i.e.use `{{0}}`, `{{1}}`, `{{2}}` and so on. In addition, if the **k**-th command-token represents a valid file path, the placeholders `{{k:F}}`, `{{k:D}}`, `{{k:P}}`, `{{k:N}}` and `{{k:X}}` will be replaced with the file's *full path* (expanded relative to working directory), *drive letter* (with trailing colon), *directory name* (with trailing backslash), *file name* (without extension) and *extension* (including dot), respectively.
+
+Note that if the **PATTERN** string contains any whitespace characters, the **PATTERN** string as a whole needs to be wrapped in quotation marks (e.g.`--pattern="foo bar")`. Also note that any quotation marks *inside* the **PATTERN** string need to be escaped by a `\"` sequence (e.g. `--pattern="foo \"{{0}}\""`). However, using the `--auto-wrap` option can simplify building **PATTERN** strings. Finally note that any *excess* command-tokens will be discarded by MParallel!
 
 ## `--separator=<SEP>`
 
@@ -136,6 +140,10 @@ Do *not* check the exit code of sub-processes. By default, MParallel checks the 
 ## `--silent`
 
 Disable all textual messages, also known as "silent mode". Note that *fatal* error messages may still appear under some circumstances. Also note that this option is mutually exclusive with the `--trace` option.
+
+## `--no-colors`
+
+Disables colored textual output to the console. By default, when MParallel is writing textual messages to the console window, it will apply the appropriate colors to them. Colors are always disabled when redirecting STDERR to a file.
 
 ## `--trace`
 
