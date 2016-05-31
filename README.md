@@ -81,11 +81,13 @@ Set the command separator to **SEP**. The separator string is used to delimit th
 
 ## `--input=<FILE>`
 
-Read additional commands from the specified **FILE**. The specified **FILE** needs to be a plain text file, containing one command per line. If the file contains any *non*-US-ASCII, it is expected to be in *UTF-8* text encoding.
+Read additional commands from the specified **FILE**. The specified **FILE** needs to be a plain text file, containing one command per line. Each *line* is interpreted like a full command-line. Using separators *within* a line is **not** required or supported, because commands are delimited by line breaks. If the file contains any characters other than plain US-ASCII, it is expected to be in *UTF-8* text encoding by default. Use the option `--utf16` in order to force UTF-16 encoding.
 
 ## `--stdin`
 
-Read additional commands from **STDIN** stream. The data passed on the STDIN needs to be plain text, containing one command per line. If the stream contains any *non*-US-ASCII, the *UTF-8* text encoding is assumed.
+Read additional commands from the **STDIN** stream. The data on **STDIN** needs to be plain text, containing one command per line. Each *line* is interpreted like a full command-line. Using separators *within* a line is **not** required or supported, because commands are delimited by line breaks. If the stream contains any characters other than plain US-ASCII, it is expected to be in *UTF-8* text encoding by default. Use the option `--utf16` in order to force UTF-16 encoding.
+
+This option is typically used to process lines produced by other programs or by shell functions. In the shell (cmd.exe) the **STDOUT** of another program can be "connected" to the **STDIN** of MParallel using a pipe operator (`|`). Note, however, that shell functions like `dir` may **not** output *UTF-8* by default. Set the shell to *UTF-8* mode (`chcp 65001`) in advance!
 
 ## `--logfile=<FILE>`
 
@@ -136,6 +138,10 @@ Do *not* add new sub-processes to job object. By default, MParallel adds all new
 ## `--ignore-exitcode`
 
 Do *not* check the exit code of sub-processes. By default, MParallel checks the exit code of each sub-process. It assumes that the command has *failed*, if the process returned a *non-zero* exit code. If any command failed, this will be reported and, if `--abort` is set, any pending commands will *not* be executed. Setting this option causes MParallel to *ignore* exit codes. However, a command is still considered to have failed, if the processes could *not* be created.
+
+## `--utf16`
+
+Interpret the lines read from a file or from the STDIN stream with *UTF-16* text encoding. By default, MParallel will interpret the lines read from a file or from the STDIN with *UTF-8* text encoding. In most cases *UTF-8* is what you want.
 
 ## `--silent`
 

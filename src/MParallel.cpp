@@ -84,6 +84,7 @@ namespace options
 	static bool         disable_concolor;
 	static bool         ignore_exitcode;
 	static bool         detached_console;
+	static bool         encoding_utf16;
 	static std::wstring separator;
 	static std::wstring command_pattern;
 	static std::wstring log_file_name;
@@ -190,6 +191,7 @@ static void print_manpage(void)
 	PRINT_NFO(L"  --timeout=<TIMEOUT>  Kill processes after TIMEOUT milliseconds\n");
 	PRINT_NFO(L"  --priority=<VALUE>   Run commands with the specified process priority\n");
 	PRINT_NFO(L"  --ignore-exitcode    Do NOT check the exit code of sub-processes\n");
+	PRINT_NFO(L"  --utf16              Read the input file as UTF-16 (Default is UTF-8)\n");
 	PRINT_NFO(L"  --detached           Run each sub-process in a separate console window\n");
 	PRINT_NFO(L"  --abort              Abort batch, if any command failed to execute\n");
 	PRINT_NFO(L"  --no-jobctrl         Do NOT add new sub-processes to job object\n");
@@ -704,6 +706,7 @@ static void reset_all_options(void)
 	options::disable_concolor = false;
 	options::ignore_exitcode = false;
 	options::detached_console = false;
+	options::encoding_utf16 = false;
 	options::separator = DEFAULT_SEP;
 	options::max_instances = processor_count();
 	options::process_timeout = 0;
@@ -821,6 +824,12 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 	{
 		REQUIRE_NO_VALUE();
 		options::ignore_exitcode = true;
+		return true;
+	}
+	else if (MATCH(option, L"utf16"))
+	{
+		REQUIRE_NO_VALUE();
+		options::encoding_utf16 = true;
 		return true;
 	}
 	else if (MATCH(option, L"trace"))
@@ -965,9 +974,8 @@ static void parse_commands_file(FILE *const input)
 static bool parse_commands_file(const wchar_t *const file_name)
 {
 	FILE *file = NULL;
-	if (_wfopen_s(&file, file_name, L"r") == 0)
+	if (_wfopen_s(&file, file_name, options::encoding_utf16 ? L"r,ccs=UTF-16LE" : L"r,ccs=UTF-8") == 0)
 	{
-		_setmode(_fileno(file), _O_U8TEXT);
 		parse_commands_file(file);
 		fclose(file);
 		return true;
@@ -1356,6 +1364,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	//Parse jobs from STDIN
 	if (options::read_stdin_lines)
 	{
+		_setmode(_fileno(stdin), options::encoding_utf16 ? _O_U16TEXT : _O_U8TEXT);
 		parse_commands_file(stdin);
 	}
 
@@ -1429,11 +1438,7 @@ int wmain(const int argc, const wchar_t *const argv[])
 		_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 		_set_invalid_parameter_handler(my_invalid_parameter_handler);
 		setvbuf(stderr, NULL, _IONBF, 0);
-		FILE *file[3] = { stdin, stdout, stderr };
-		for (size_t i = 0; i < 3; i++)
-		{
-			_setmode(_fileno(file[i]), _O_U8TEXT);
-		}
+		_setmode(_fileno(stderr), _O_U8TEXT);
 		return mparallel_main(argc, argv);
 	}
 	__except (1)
