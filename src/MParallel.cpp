@@ -1115,14 +1115,14 @@ static HANDLE start_next_process(std::wstring command)
 		ResumeThread(process_info.hThread);
 		CLOSE_HANDLE(redir_file);
 		CLOSE_HANDLE(process_info.hThread);
-		PRINT_TRC(L"Process 0x%X has been started.\n", process_info.dwProcessId);
+		PRINT_TRC(L"Process 0x%X has been started.\n\n", process_info.dwProcessId);
 		LOG(L"Process started: 0x%X\n", process_info.dwProcessId);
 		return process_info.hProcess;
 	}
 
 	const DWORD error = GetLastError();
-	PRINT_TRC(L"CreateProcessW() failed with Win32 error code: 0x%X.\n", error);
-	print_win32_error(L"\nProcess creation has failed: %s\n", error);
+	PRINT_TRC(L"CreateProcessW() failed with Win32 error code: 0x%X.\n\n", error);
+	print_win32_error(L"\nProcess creation has failed: %s\n\n", error);
 	PRINT_ERR(L"ERROR: Process ``%s´´could not be created!\n\n", command.c_str());
 	LOG(L"Process creation failed! (Error  0x%X)\n", error);
 	CLOSE_HANDLE(redir_file);
