@@ -1078,7 +1078,7 @@ static HANDLE start_next_process(std::wstring command)
 		command = builder.str();
 	}
 
-	PRINT_EMP(L"%s\n", command.c_str());
+	PRINT_EMP(L"%s\n\n", command.c_str());
 	LOG(L"Starting process: %s\n", command.c_str());
 
 	STARTUPINFOW startup_info;
