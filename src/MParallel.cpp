@@ -406,7 +406,7 @@ static void open_log_file(const wchar_t *file_name)
 {
 	if (!g_log_file)
 	{
-		if (_wfopen_s(&g_log_file, file_name, L"a,ccs=UTF-8") == 0)
+		if (g_log_file = _wfsopen(file_name, L"a,ccs=UTF-8", _SH_DENYWR))
 		{
 			_fseeki64(g_log_file, 0, SEEK_END);
 			if (_ftelli64(g_log_file) > 0)
@@ -642,8 +642,8 @@ static void parse_commands_pattern(const std::wstring &pattern, int argc, const 
 		{
 			if (!command_buffer.empty())
 			{
-				var_idx = 0;
 				g_queue.push(command_buffer);
+				var_idx = 0;
 				command_buffer = pattern;
 			}
 		}
@@ -945,10 +945,10 @@ static bool parse_arguments(const int argc, const wchar_t *const argv[])
 static void parse_commands_file(FILE *const input)
 {
 	wchar_t line_buffer[32768];
-	while (fgetws(line_buffer, 32768, input))
+	while (wchar_t *const current_line = fgetws(line_buffer, 32768, input))
 	{
 		int argc;
-		const wchar_t *const trimmed = trim_str(line_buffer);
+		const wchar_t *const trimmed = trim_str(current_line);
 		if (trimmed && trimmed[0])
 		{
 			PRINT_TRC(L"Read line: %s\n", trimmed);
@@ -1019,7 +1019,7 @@ static bool release_process(const DWORD index, const bool cancelled)
 		if (GetExitCodeProcess(g_processes[index], &exit_code))
 		{
 			PRINT_TRC(L"Process 0x%X terminated with exit code 0x%X.\n", GetProcessId(g_processes[index]), exit_code);
-			LOG(L"Process terminated: 0x%X (Exit code 0x%X).\n", GetProcessId(g_processes[index]), exit_code);
+			LOG(L"Process terminated: 0x%X (Exit code: 0x%X).\n", GetProcessId(g_processes[index]), exit_code);
 			if (!(succeeded = (exit_code == 0) || options::ignore_exitcode))
 			{
 				PRINT_ERR(L"\nERROR: The command has failed! (ExitCode: %u)\n\n", exit_code);
@@ -1457,9 +1457,10 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 
 int wmain(const int argc, const wchar_t *const argv[])
 {
-	SetErrorMode(SetErrorMode(0x3) | 0x3);
+#ifndef _DEBUG
 	__try
 	{
+		SetErrorMode(SetErrorMode(0x3) | 0x3);
 		_set_error_mode(_OUT_TO_STDERR);
 		_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 		_set_invalid_parameter_handler(my_invalid_parameter_handler);
@@ -1472,5 +1473,10 @@ int wmain(const int argc, const wchar_t *const argv[])
 		fatal_exit(L"\n\nFATAL: Unhandeled exception error!\n\n");
 		return FATAL_EXIT_CODE;
 	}
+#else
+	setvbuf(stderr, NULL, _IONBF, 0);
+	_setmode(_fileno(stderr), _O_U8TEXT);
+	return mparallel_main(argc, argv);
+#endif //_DEBUG
 }
 
