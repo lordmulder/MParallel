@@ -99,6 +99,7 @@ static HANDLE  g_processes[MAX_TASKS];
 static bool    g_isrunning[MAX_TASKS];
 static DWORD   g_process_count;
 static DWORD   g_processes_completed[2];
+static DWORD   g_max_exit_code;
 static HANDLE  g_job_object;
 static FILE*   g_log_file;
 static HANDLE  g_interrupt_event;
@@ -988,6 +989,15 @@ static bool parse_commands_file(const wchar_t *const file_name)
 // PROCESS FUNCTIONS
 // ==========================================================================
 
+//Dequeue next task
+static inline std::wstring dequeue_next_command(void)
+{
+	assert(g_queue.size() > 0);
+	const std::wstring next_item = g_queue.front();
+	g_queue.pop();
+	return next_item;
+}
+
 //Print Win32 error message
 static void print_win32_error(const wchar_t *const format, const DWORD error)
 {
@@ -998,6 +1008,42 @@ static void print_win32_error(const wchar_t *const format, const DWORD error)
 	}
 }
 
+static bool release_process(const DWORD index, const bool cancelled)
+{
+	assert(g_isrunning[index]);
+	DWORD exit_code = 1;
+	bool succeeded = false;
+
+	if (!cancelled)
+	{
+		if (GetExitCodeProcess(g_processes[index], &exit_code))
+		{
+			PRINT_TRC(L"Process 0x%X terminated with exit code 0x%X.\n", GetProcessId(g_processes[index]), exit_code);
+			LOG(L"Process terminated: 0x%X (Exit code 0x%X).\n", GetProcessId(g_processes[index]), exit_code);
+			if (!(succeeded = (exit_code == 0) || options::ignore_exitcode))
+			{
+				PRINT_ERR(L"\nERROR: The command has failed! (ExitCode: %u)\n\n", exit_code);
+			}
+		}
+		else
+		{
+			exit_code = 1; /*just to be sure*/
+			PRINT_WRN(L"WARNING: Exit code for process 0x%X could not be determined.\n", GetProcessId(g_processes[index]));
+			LOG(L"Process terminated: 0x%X (Exit code N/A).\n", GetProcessId(g_processes[index]));
+		}
+	}
+
+	CLOSE_HANDLE(g_processes[index]);
+	g_processes[index] = NULL;
+	g_isrunning[index] = false;
+
+	g_max_exit_code = std::max(g_max_exit_code, exit_code);
+	g_process_count--;
+	g_processes_completed[succeeded ? 0 : 1]++;
+
+	return succeeded;
+}
+
 //Terminate all running processes
 static void terminate_processes(void)
 {
@@ -1005,12 +1051,8 @@ static void terminate_processes(void)
 	{
 		if (g_isrunning[i])
 		{
-			g_process_count--;
 			TerminateProcess(g_processes[i], 666);
-			CLOSE_HANDLE(g_processes[i]);
-			g_isrunning[i] = false;
-			g_processes[i] = NULL;
-			g_processes_completed[1]++;
+			release_process(i, true);
 		}
 	}
 }
@@ -1075,10 +1117,9 @@ static DWORD get_priority_class(const DWORD priority)
 }
 
 //Start the next process
-static HANDLE start_next_process(std::wstring command)
+static bool start_next_process(std::wstring command)
 {
-	static const DWORD defaultFlags = CREATE_BREAKAWAY_FROM_JOB | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT;
-
+	bool success = false;
 	if (options::force_use_shell)
 	{
 		std::wstringstream builder;
@@ -1105,7 +1146,7 @@ static HANDLE start_next_process(std::wstring command)
 		}
 	}
 
-	DWORD flags = defaultFlags | get_priority_class(options::process_priority);
+	DWORD flags = CREATE_BREAKAWAY_FROM_JOB | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | get_priority_class(options::process_priority);
 	if (options::detached_console)
 	{
 		flags = flags | CREATE_NEW_CONSOLE;
@@ -1120,21 +1161,40 @@ static HANDLE start_next_process(std::wstring command)
 				PRINT_WRN(L"WARNING: Failed to assign process to job object!\n\n");
 			}
 		}
-		ResumeThread(process_info.hThread);
-		CLOSE_HANDLE(redir_file);
+		if (ResumeThread(process_info.hThread))
+		{
+			PRINT_TRC(L"Process 0x%X has been started.\n\n", process_info.dwProcessId);
+			LOG(L"Process started: 0x%X\n", process_info.dwProcessId);
+			static DWORD slot = 0;
+			do
+			{
+				slot = (slot + 1) % options::max_instances;
+			}
+			while(g_isrunning[slot]);
+			g_process_count++;
+			g_isrunning[slot] = true;
+			g_processes[slot] = process_info.hProcess;
+			success = true;
+		}
+		else
+		{
+			TerminateProcess(process_info.hProcess, 666);
+			CLOSE_HANDLE(process_info.hProcess);
+			PRINT_ERR(L"ERROR: Failed to resume the process -> terminating!\n\n");
+		}
 		CLOSE_HANDLE(process_info.hThread);
-		PRINT_TRC(L"Process 0x%X has been started.\n\n", process_info.dwProcessId);
-		LOG(L"Process started: 0x%X\n", process_info.dwProcessId);
-		return process_info.hProcess;
+	}
+	else
+	{
+		const DWORD error = GetLastError();
+		PRINT_TRC(L"CreateProcessW() failed with Win32 error code: 0x%X.\n\n", error);
+		print_win32_error(L"\nProcess creation has failed: %s\n\n", error);
+		PRINT_ERR(L"ERROR: Process ``%s´´could not be created!\n\n", command.c_str());
+		LOG(L"Process creation failed! (Error  0x%X)\n", error);
 	}
 
-	const DWORD error = GetLastError();
-	PRINT_TRC(L"CreateProcessW() failed with Win32 error code: 0x%X.\n\n", error);
-	print_win32_error(L"\nProcess creation has failed: %s\n\n", error);
-	PRINT_ERR(L"ERROR: Process ``%s´´could not be created!\n\n", command.c_str());
-	LOG(L"Process creation failed! (Error  0x%X)\n", error);
 	CLOSE_HANDLE(redir_file);
-	return NULL;
+	return success;
 }
 
 //Wait for *any* running process to terminate
@@ -1152,40 +1212,39 @@ static DWORD wait_for_process(bool &timeout, bool &interrupted)
 			handles[count++] = g_processes[i];
 		}
 	}
+
 	if (g_interrupt_event)
 	{
 		handles[count] = g_interrupt_event;
 	}
 
-	if (count > 0)
+	if (count < 1)
 	{
-		const DWORD num_handels = g_interrupt_event ? (count + 1) : count;
-		const DWORD ret = WaitForMultipleObjects(num_handels, &handles[0], FALSE, (options::process_timeout > 0) ? options::process_timeout : INFINITE);
-		if ((ret >= WAIT_OBJECT_0) && (ret < WAIT_OBJECT_0 + count))
-		{
-			return index[ret - WAIT_OBJECT_0];
-		}
-		if (ret == WAIT_OBJECT_0 + count)
-		{
-			interrupted = true;
-			return MAXDWORD;
-		}
-		if ((ret == WAIT_TIMEOUT) && (options::process_timeout > 0))
-		{
-			timeout = true;
-			PRINT_TRC(L"WaitForMultipleObjects() failed with WAIT_TIMEOUT error! (dwMilliseconds = %u)\n", options::process_timeout);
-			return MAXDWORD;
-		}
+		PRINT_ERR(L"INTERNAL ERROR: No runnings processes to be awaited!\n\n");
+		abort();
 	}
 
-	PRINT_TRC(L"WaitForMultipleObjects() failed with Win32 error code: 0x%X.\n", GetLastError());
+	const DWORD num_handels = g_interrupt_event ? (count + 1) : count;
+	const DWORD ret = WaitForMultipleObjects(num_handels, &handles[0], FALSE, (options::process_timeout > 0) ? options::process_timeout : INFINITE);
+	if ((ret >= WAIT_OBJECT_0) && (ret < WAIT_OBJECT_0 + count))
+	{
+		return index[ret - WAIT_OBJECT_0];
+	}
+
+	interrupted = (ret == WAIT_OBJECT_0 + count);
+	timeout = (ret == WAIT_TIMEOUT) && (options::process_timeout > 0);
+	if(interrupted || timeout)
+	{
+		PRINT_TRC(L"WaitForMultipleObjects() failed with Win32 error code: 0x%X.\\nn", GetLastError());
+	}
+
 	return MAXDWORD;
 }
 
 //Run processes
-static int run_processes(void)
+static void run_processes(void)
 {
-	DWORD slot = 0, exit_code = 0;
+	DWORD slot = 0;
 	bool aborted = false, interrupted = false;
 
 	//MAIN PROCESSING LOOP
@@ -1198,31 +1257,17 @@ static int run_processes(void)
 			{
 				if (WaitForSingleObject(g_interrupt_event, 0) == WAIT_OBJECT_0)
 				{
-					exit_code = std::max(exit_code, DWORD(1));
+					g_max_exit_code = std::max(g_max_exit_code, DWORD(1));
 					interrupted = aborted = true;
-					PRINT_ERR(L"\nERROR: Interrupted by user, exiting!\n\n");
 					break;
 				}
 			}
-			const std::wstring next_command = g_queue.front();
-			g_queue.pop();
-			if (const HANDLE process = start_next_process(next_command))
+			if (!start_next_process(dequeue_next_command()))
 			{
-				g_process_count++;
-				while (g_isrunning[slot])
-				{
-					slot = (slot + 1) % options::max_instances;
-				}
-				g_processes[slot] = process;
-				g_isrunning[slot] = true;
-			}
-			else
-			{
+				g_max_exit_code = std::max(g_max_exit_code, DWORD(1));
 				if (options::abort_on_failure)
 				{
-					exit_code = std::max(exit_code, DWORD(1));
 					aborted = true;
-					PRINT_ERR(L"\nERROR: Process creation failed, aborting!\n\n");
 					break;
 				}
 			}
@@ -1235,71 +1280,50 @@ static int run_processes(void)
 			const DWORD index = wait_for_process(timeout, interrupted);
 			if (index != MAXDWORD)
 			{
-				g_process_count--;
-				DWORD temp;
-				if (GetExitCodeProcess(g_processes[index], &temp))
+				if (!release_process(index, false))
 				{
-					exit_code = std::max(exit_code, temp);
-					PRINT_TRC(L"Process 0x%X terminated with exit code 0x%X.\n", GetProcessId(g_processes[index]), temp);
-					LOG(L"Process terminated: 0x%X (Exit code 0x%X).\n", GetProcessId(g_processes[index]), temp);
-					if ((temp != 0) && (!options::ignore_exitcode))
-					{
-						g_processes_completed[1]++;
-						if (options::abort_on_failure)
-						{
-							aborted = true;
-							PRINT_ERR(L"\nERROR: Command failed, aborting! (ExitCode: %u)\n\n", temp);
-							break;
-						}
-						PRINT_ERR(L"\nERROR: The command has failed! (ExitCode: %u)\n\n", temp);
-					}
-					else
-					{
-						g_processes_completed[0]++;
-					}
-				}
-				else
-				{
-					g_processes_completed[1]++;
-					PRINT_WRN(L"WARNING: Exit code for process 0x%X could not be determined.\n", GetProcessId(g_processes[index]));
-					LOG(L"Process terminated: 0x%X (Exit code N/A).\n", GetProcessId(g_processes[index]));
-				}
-				CLOSE_HANDLE(g_processes[index]);
-				g_processes[index] = NULL;
-				g_isrunning[index] = false;
-			}
-			else
-			{
-				exit_code = std::max(exit_code, DWORD(1));
-				if (timeout)
-				{
-					PRINT_ERR(L"\nERROR: Timeout encountered, terminating running process!\n\n");
-					terminate_processes();
 					if (options::abort_on_failure)
 					{
 						aborted = true;
 						break;
 					}
 				}
-				else if (interrupted)
+			}
+			else
+			{
+				g_max_exit_code = std::max(g_max_exit_code, DWORD(1));
+				if (timeout)
 				{
-					aborted = true;
-					PRINT_ERR(L"\nERROR: Interrupted by user, exiting!\n\n");
-					break;
+					PRINT_ERR(L"\nERROR: Timeout encountered, terminating running process!\n\n");
+					if (options::abort_on_failure)
+					{
+						aborted = true;
+						break;
+					}
+					terminate_processes();
 				}
 				else
 				{
+					if (!interrupted)
+					{
+						PRINT_ERR(L"\nFATAL ERROR: Failed to wait for running process!\n\n");
+					}
 					aborted = true;
-					PRINT_ERR(L"\nERROR: Failed to wait for running process!\n\n");
 					break;
 				}
 			}
 		}
 	}
 
+	//Was the process interrupted?
+	if (interrupted)
+	{
+		PRINT_ERR(L"\nSIGINT: Interrupted by user, exiting!\n\n");
+	}
+
 	//Terminate all processes still running at this point
 	terminate_processes();
-	return exit_code;
+	assert(g_process_count < 1);
 }
 
 // ==========================================================================
@@ -1316,6 +1340,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	g_processes_completed[0] = 0;
 	g_processes_completed[1] = 0;
 	g_process_count = 0;
+	g_max_exit_code = 0;
 
 	//Clear
 	memset(g_processes, 0, sizeof(HANDLE) * MAX_TASKS);
@@ -1379,7 +1404,8 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	g_logo_printed = true;
 
 	//Logging
-	PRINT_TRC(L"Commands in queue: %zu\n", g_queue.size());
+	LOG(L"Enqueued tasks: %u (Parallel instances: %u)\n", g_queue.size(), options::max_instances);
+	PRINT_TRC(L"Tasks in queue: %zu\n", g_queue.size());
 	PRINT_TRC(L"Maximum parallel instances: %u\n", options::max_instances);
 
 	//Create job object
@@ -1394,7 +1420,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 
 	//Run processes
 	const clock_t timestamp_enter = clock();
-	const int retval = run_processes();
+	run_processes();
 	const clock_t timestamp_leave = clock();
 
 	//Close the job object
@@ -1426,7 +1452,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 		g_log_file = NULL;
 	}
 
-	return retval;
+	return g_max_exit_code;
 }
 
 int wmain(const int argc, const wchar_t *const argv[])
