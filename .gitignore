@@ -1,8 +1,10 @@
 *.VC.db
+*.sdf
 *.suo
 /*.html
 /*.opendb
+/Make.local.cmd
 /bin
+/ipch
 /obj
 /out
-/Make.local.cmd

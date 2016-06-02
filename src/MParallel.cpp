@@ -115,6 +115,12 @@ static HANDLE  g_interrupt_event;
 //Forward declaration
 static inline void print_impl(const UINT, const wchar_t *const, ...);
 
+//MSVC compat
+#if defined(_MSC_VER) && (_MSC_VER < 1800)
+#define iswblank(X) (0)
+#endif
+
+
 // ==========================================================================
 // WIN32 SUPPORT
 // ==========================================================================
