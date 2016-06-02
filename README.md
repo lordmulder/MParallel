@@ -221,7 +221,7 @@ License: CC Attribution 4.0 license
 
 * Added new option `--utf16` to treat file (or STDIN) inputs as UTF-16
 
-* Added two example scripts, see `Example_1.cmd` and `Example_1.cmd` for details
+* Added two example scripts, see `Example_1.cmd` and `Example_2.cmd` for details
 
 * Build binaries with VS2010 to workaround the [line reading bug](https://connect.microsoft.com/VisualStudio/Feedback/Details/1902345) currently present in VS2015
 
