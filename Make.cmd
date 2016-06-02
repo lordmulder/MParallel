@@ -6,11 +6,14 @@ REM ///////////////////////////////////////////////////////////////////////////
 REM // Setup environment
 REM ///////////////////////////////////////////////////////////////////////////
 
-REM Windows specific
-set "MSVC_PATH=C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC"
+REM Setup paths
+set "MSVC_PATH=C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC"
 set "PDOC_PATH=C:\Program Files (x86)\Pandoc"
-set "GIT2_PATH=C:\Program Files\Git\bin"
+set "GIT2_PATH=C:\Program Files (x86)\Git\bin"
 set "UPX3_PATH=C:\Program Files (x86)\UPX"
+
+set "SOLUTION_POSTFIX=VC10"
+set "PLATFORM_TOOLSET=v100"
 
 REM ///////////////////////////////////////////////////////////////////////////
 REM // Check paths
@@ -28,6 +31,11 @@ if not exist "%PDOC_PATH%\pandoc.exe" (
 
 if not exist "%GIT2_PATH%\git.exe" (
 	"%~dp0\etc\cecho.exe" RED "\nGIT not found.\n%GIT2_PATH:\=\\%\\git.exe\n"
+	pause & goto:eof
+)
+
+if not exist "%UPX3_PATH%\upx.exe" (
+	"%~dp0\etc\cecho.exe" RED "\nUPX not found.\n%UPX3_PATH:\=\\%\\upx.exe\n"
 	pause & goto:eof
 )
 
@@ -62,17 +70,17 @@ REM ///////////////////////////////////////////////////////////////////////////
 
 "%~dp0\etc\cecho.exe" YELLOW "\n========[ COMPILE ]========"
 
-call "%MSVC_PATH%\vcvarsall.bat"
+call "%MSVC_PATH%\vcvarsall.bat" x86
 
 for %%p in (x86,x64) do (
 	for %%t in (Clean,Rebuild,Build) do (
-		MSBuild.exe /property:Platform=%%p /property:Configuration=Release /target:%%t "%~dp0\MParallel.sln"
+		MSBuild.exe /property:Platform=%%p /property:Configuration=Release /target:%%t "%~dp0\MParallel_%SOLUTION_POSTFIX%.sln"
 		if not "!ERRORLEVEL!"=="0" goto BuildHasFailed
 	)
 )
 
-for %%p in (Win32,x64) do (
-	"%UPX3_PATH%\upx.exe" --best "%~dp0\bin\%%p\Release\MParallel.exe"
+for %%p in (win32,win64) do (
+	"%UPX3_PATH%\upx.exe" --best "%~dp0\bin\%PLATFORM_TOOLSET%\%%p\Release\MParallel.exe"
 )
 
 
@@ -112,8 +120,8 @@ REM ///////////////////////////////////////////////////////////////////////////
 
 "%~dp0\etc\cecho.exe" YELLOW "\n========[ PACKAGING ]========\n"
 
-"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X86%" "%~dp0\bin\Win32\Release\MParallel.exe" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
-"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X64%" "%~dp0\bin\x64\.\Release\MParallel.exe" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
+"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X86%" "%~dp0\bin\%PLATFORM_TOOLSET%\win32\Release\MParallel.exe" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
+"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X64%" "%~dp0\bin\%PLATFORM_TOOLSET%\win64\Release\MParallel.exe" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
 
 "%GIT2_PATH%\git.exe" archive --format tar.gz -9 --verbose --output "%OUT_PATH_SRC%" HEAD
 
