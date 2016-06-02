@@ -227,9 +227,9 @@ License: CC Attribution 4.0 license
 
 * Massive code refactoring and clean-up
 
-## v1.0.0 [2016-06-02]
+## v1.0.0 [2016-05-30]
 
-* This is the initial release of the MParallel application.
+* This is the *initial* release of the **MParallel** application.
 
 &nbsp;  
 
