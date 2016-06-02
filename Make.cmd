@@ -120,8 +120,8 @@ REM ///////////////////////////////////////////////////////////////////////////
 
 "%~dp0\etc\cecho.exe" YELLOW "\n========[ PACKAGING ]========\n"
 
-"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X86%" "%~dp0\bin\%PLATFORM_TOOLSET%\win32\Release\MParallel.exe" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
-"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X64%" "%~dp0\bin\%PLATFORM_TOOLSET%\win64\Release\MParallel.exe" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
+"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X86%" "%~dp0\bin\%PLATFORM_TOOLSET%\win32\Release\MParallel.exe" "%~dp0\Example.cmd" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
+"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X64%" "%~dp0\bin\%PLATFORM_TOOLSET%\win64\Release\MParallel.exe" "%~dp0\Example.cmd" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
 
 "%GIT2_PATH%\git.exe" archive --format tar.gz -9 --verbose --output "%OUT_PATH_SRC%" HEAD
 

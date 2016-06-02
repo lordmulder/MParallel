@@ -26,11 +26,14 @@ chcp 65001
 REM Set path to the directory containing our input files
 set "SOURCE_PATH=E:\PiCz\sCrEeNsHoTz"
 
-REM Set path to MParallel executable
-set "MPARALLEL32=%~dp0\bin\v100\x86\Release\MParallel.exe"
-
 REM Set path to ImageMagick
 set "MAGICK_PATH=C:\Program Files\ImageMagick-7.0.1-Q16"
+
+REM Detect path to the MParallel executable
+set "MPARALLEL32=%~dp0\MParallel.exe"
+if not exist "%MPARALLEL32%" (
+	set "MPARALLEL32=%~dp0\bin\v100\win32\Release\MParallel.exe"
+)
 
 REM Add the ImageMagick path to PATH, because otherwise it will fail to load its DLL's
 set "PATH=%MAGICK_PATH%;%PATH%"

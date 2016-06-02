@@ -58,6 +58,10 @@ Now let's read the output of the "dir" command to *copy* all "&ast;.jpg" files i
 
 Note that here we need to use the `--shell` option, because `copy` is a built-in shell function. Also note that we would need to add `--no-split-lines` and `--auto-wrap` in order to correctly handle file names containing spaces!
 
+## More Examples
+
+Please refer to the included `Example.cmd` script for an *in-depth* **MParallel** example on how to convert all JPEG files in a directory to the PNG format, *in parallel*, using the [**ImageMagick**](http://www.imagemagick.org/). You will need [ImageMagick for Windows](http://www.imagemagick.org/script/binary-releases.php#windows).
+
 
 # Options
 
