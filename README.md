@@ -184,7 +184,6 @@ Print the help screen, also known as "manpage".
 
 # License Terms #
 
-
 **MParallel** is released under the *GNU General Public License*, Version 2.
 
     MParallel - Parallel Batch Processor
@@ -212,6 +211,25 @@ Print the help screen, also known as "manpage".
 Using **Application Lightning Icon**, created by *Fatcow Web Hosting*  
 License: CC Attribution 4.0 license  
 (Backlink to <http://www.fatcow.com/free-icons> required)
+
+
+# Version History
+
+## v1.0.1 [2016-06-02]
+
+* Implemented colored console output, enabled by default, disable with `--no-colors` option
+
+* Added new option `--utf16` to treat file (or STDIN) inputs as UTF-16
+
+* Added two example scripts, see `Example_1.cmd` and `Example_1.cmd` for details
+
+* Build binaries with VS2010 to workaround the [line reading bug](https://connect.microsoft.com/VisualStudio/Feedback/Details/1902345) currently present in VS2015
+
+* Massive code refactoring and clean-up
+
+## v1.0.0 [2016-06-02]
+
+* This is the initial release of the MParallel application.
 
 &nbsp;  
 
