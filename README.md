@@ -60,7 +60,9 @@ Note that here we need to use the `--shell` option, because `copy` is a built-in
 
 ## More Examples
 
-Please refer to the included `Example.cmd` script for an *in-depth* **MParallel** example on how to convert all JPEG files in a directory to the PNG format, *in parallel*, using the [**ImageMagick**](http://www.imagemagick.org/). You will need [ImageMagick for Windows](http://www.imagemagick.org/script/binary-releases.php#windows).
+Please refer to the included `Example_1.cmd` script for an *in-depth* **MParallel** example on how to convert all JPEG files in a directory to the PNG format, *in parallel*, using [**ImageMagick**](http://www.imagemagick.org/). You will need [ImageMagick for Windows](http://www.imagemagick.org/script/binary-releases.php#windows).
+
+Also, refer to the included `Example_2.cmd` script for an *in-depth* **MParallel** example on how to convert all AVI files in a directory to the MP4 format, *in parallel*, using [**FFmpeg**](https://ffmpeg.org/)/[**Libav**](https://libav.org/). You will need [FFmpeg builds for Windows](https://ffmpeg.zeranoe.com/builds/).
 
 
 # Options
