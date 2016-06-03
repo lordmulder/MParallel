@@ -98,6 +98,10 @@ static HANDLE  g_job_object;
 static FILE*   g_log_file;
 static HANDLE  g_interrupt_event;
 
+// ==========================================================================
+// TEXT OUTPUT
+// ==========================================================================
+
 //Text out
 #define PRINT_NFO(...) print_impl(0x0, __VA_ARGS__)
 #define PRINT_WRN(...) print_impl(0x1, __VA_ARGS__)
@@ -107,7 +111,85 @@ static HANDLE  g_interrupt_event;
 #define PRINT_TRC(...) print_impl(0x5, __VA_ARGS__)
 
 //Forward declaration
-static inline void print_impl(const UINT, const wchar_t *const, ...);
+static void print_logo(void);
+
+//Progress
+#define UPDATE_PROGRESS() do \
+{ \
+	if((g_processes_total > 0) && (!options::disable_outputs)) \
+	{ \
+		const DWORD processes_completed = g_processes_completed[0] + g_processes_completed[1]; \
+		const double progress = double(processes_completed) / double(g_processes_total); \
+		utils::set_console_title(L"[%.1f%%] MParallel - Tasks completed: %u of %u", 100.0 * progress, processes_completed, g_processes_total); \
+	} \
+} \
+while(0)
+
+static inline void print_impl(const UINT type, const wchar_t *const fmt, ...)
+{
+	if(!(options::disable_outputs && (g_processes_total > 0)))
+	{
+		if ((type < 0x5) && (!g_logo_printed))
+		{
+			g_logo_printed = true;
+			print_logo();
+		}
+		if ((type < 0x5) || options::enable_tracing)
+		{
+			va_list args;
+			va_start(args, fmt);
+			utils::write_console(type, (!options::disable_concolor), fmt, args);
+			va_end(args);
+		}
+	}
+}
+
+// ==========================================================================
+// LOGGING
+// ==========================================================================
+
+#define LOG(...) do \
+{ \
+	if(g_log_file) \
+	{ \
+		logging_impl(__VA_ARGS__); \
+	} \
+} \
+while(0)
+
+static inline void logging_impl(const wchar_t *const fmt, ...)
+{
+	assert(g_log_file != NULL);
+	wchar_t time_buffer[32];
+	if (utils::get_current_time(time_buffer, 32, false))
+	{
+		va_list args;
+		va_start(args, fmt);
+		fwprintf_s(g_log_file, L"[%s] ", time_buffer);
+		vfwprintf_s(g_log_file, fmt, args);
+		va_end(args);
+	}
+}
+
+static void open_log_file(const wchar_t *file_name)
+{
+	if (!g_log_file)
+	{
+		if (g_log_file = _wfsopen(file_name, L"a,ccs=UTF-8", _SH_DENYWR))
+		{
+			_fseeki64(g_log_file, 0, SEEK_END);
+			if (_ftelli64(g_log_file) > 0)
+			{
+				fwprintf(g_log_file, L"---------------------\n");
+			}
+		}
+		else
+		{
+			g_log_file = NULL;
+			PRINT_ERR(L"ERROR: Failed to open log file \"%s\" for writing!\n\n", options::log_file_name.c_str());
+		}
+	}
+}
 
 // ==========================================================================
 // LOGO / MANPAGE
@@ -152,87 +234,6 @@ static void print_manpage(void)
 	PRINT_NFO(L"  --no-colors          Do NOT applay colors to textual console output\n");
 	PRINT_NFO(L"  --trace              Enable more diagnostic outputs (for debugging only)\n");
 	PRINT_NFO(L"  --help               Print this help screen\n");
-}
-
-// ==========================================================================
-// TEXT OUTPUT
-// ==========================================================================
-
-#define LOG(...) do \
-{ \
-	if(g_log_file) \
-	{ \
-		logging_impl(__VA_ARGS__); \
-	} \
-} \
-while(0)
-
-#define UPDATE_PROGRESS() do \
-{ \
-	if((g_processes_total > 0) && (!options::disable_outputs)) \
-	{ \
-		const DWORD processes_completed = g_processes_completed[0] + g_processes_completed[1]; \
-		const double progress = double(processes_completed) / double(g_processes_total); \
-		utils::set_console_title(L"[%.1f%%] MParallel - Tasks completed: %u of %u", 100.0 * progress, processes_completed, g_processes_total); \
-	} \
-} \
-while(0)
-
-static inline void logging_impl(const wchar_t *const fmt, ...)
-{
-	assert(g_log_file != NULL);
-	wchar_t time_buffer[32];
-	if (utils::get_current_time(time_buffer, 32, false))
-	{
-		va_list args;
-		va_start(args, fmt);
-		fwprintf_s(g_log_file, L"[%s] ", time_buffer);
-		vfwprintf_s(g_log_file, fmt, args);
-		va_end(args);
-	}
-}
-
-static inline void print_impl(const UINT type, const wchar_t *const fmt, ...)
-{
-	if(!(options::disable_outputs && (g_processes_total > 0)))
-	{
-		if ((type < 0x5) && (!g_logo_printed))
-		{
-			g_logo_printed = true;
-			print_logo();
-		}
-		if ((type < 0x5) || options::enable_tracing)
-		{
-			va_list args;
-			va_start(args, fmt);
-			utils::write_console(type, (!options::disable_concolor), fmt, args);
-			va_end(args);
-		}
-	}
-}
-
-// ==========================================================================
-// LOGGING
-// ==========================================================================
-
-static void open_log_file(const wchar_t *file_name)
-{
-	if (!g_log_file)
-	{
-		if (g_log_file = _wfsopen(file_name, L"a,ccs=UTF-8", _SH_DENYWR))
-		{
-			_fseeki64(g_log_file, 0, SEEK_END);
-			if (_ftelli64(g_log_file) > 0)
-			{
-				fwprintf(g_log_file, L"---------------------\n");
-			}
-		}
-		else
-		{
-			g_log_file = NULL;
-			PRINT_ERR(L"ERROR: Failed to open log file \"%s\" for writing!\n\n", options::log_file_name.c_str());
-		}
-	}
 }
 
 // ==========================================================================
@@ -712,7 +713,7 @@ static bool parse_commands_file(const wchar_t *const file_name)
 	if (_wfopen_s(&file, file_name, options::encoding_utf16 ? L"r,ccs=UTF-16LE" : L"r,ccs=UTF-8") == 0)
 	{
 		parse_commands_file(file);
-		fclose(file);
+		CLOSE_FILE(file);
 		return true;
 	}
 	PRINT_ERR(L"ERROR: Unbale to open file \"%s\" for reading!\n\n", file_name);
@@ -742,6 +743,7 @@ static void print_win32_error(const wchar_t *const format, const DWORD error)
 	}
 }
 
+//Release process handle
 static bool release_process(const DWORD index, const bool cancelled)
 {
 	assert(g_isrunning[index]);
@@ -980,7 +982,7 @@ static DWORD wait_for_process(bool &timeout, bool &interrupted)
 	return MAXDWORD;
 }
 
-//Run processes
+//Run all processes
 static void run_all_processes(void)
 {
 	DWORD slot = 0;
@@ -1076,6 +1078,7 @@ static void run_all_processes(void)
 // MAIN FUNCTION
 // ==========================================================================
 
+//MParallel main
 static int mparallel_main(const int argc, const wchar_t *const argv[])
 {
 	//Initialize globals
@@ -1212,12 +1215,8 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	//Logging
 	LOG(L"Total execution time: %.2f (Completed tasks: %u, Failed tasks: %u)\n", total_time, g_processes_completed);
 
-	//Close the log file
-	if (g_log_file)
-	{
-		fclose(g_log_file);
-		g_log_file = NULL;
-	}
+	//Close log file
+	CLOSE_FILE(g_log_file);
 
 	//Restore console icon and title
 	if(!options::disable_outputs)
@@ -1229,6 +1228,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	return g_max_exit_code;
 }
 
+//Entry point
 int wmain(const int argc, const wchar_t *const argv[])
 {
 #ifndef _DEBUG

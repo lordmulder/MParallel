@@ -60,6 +60,17 @@ namespace utils
 	bool split_file_name(const wchar_t *const full_path, std::wstring &drive, std::wstring &dir, std::wstring &fname, std::wstring &ext);
 }
 
+//Close file
+#define CLOSE_FILE(X) do \
+{ \
+	if((X)) \
+	{ \
+		fclose((X)); \
+		(X) = NULL; \
+	} \
+} \
+while(0)
+
 //Close handle
 #define CLOSE_HANDLE(X) do \
 { \
