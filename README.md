@@ -135,7 +135,7 @@ Run each sub-process in a *separate* console window. By default, all sub-process
 
 ## `--abort`
 
-Abort batch, if any command failed to execute. By default, if any command failed, e.g. because the process could *not* be created or because it returned a *non-zero* exit code, other pending commands will still get a chance to run. If this option is set, the whole batch (queue) will be aborted, as soon as one command has failed.
+Abort batch, if any command failed to execute. By default, if any command failed, e.g. because the process could *not* be created or because it returned a *non-zero* exit code, other pending commands will still get a chance to run. If this option is set, the whole batch (queue) will be *aborted*, as soon as one command has failed.
 
 ## `--no-jobctrl`
 
@@ -214,6 +214,10 @@ License: CC Attribution 4.0 license
 
 
 # Version History
+
+## v1.0.2 [2016-06-03]
+
+* Fixed various regressions.
 
 ## v1.0.1 [2016-06-02]
 
