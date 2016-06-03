@@ -19,6 +19,8 @@
 // http://www.gnu.org/licenses/gpl-2.0.txt
 //////////////////////////////////////////////////////////////////////////////////
 
+#pragma once
+
 //Version
 #define MPARALLEL_VERSION_MAJOR 1
 #define MPARALLEL_VERSION_MINOR 0

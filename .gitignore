@@ -1,4 +1,6 @@
 *.VC.db
+*.aps
+*.opensdf
 *.sdf
 *.suo
 /*.html

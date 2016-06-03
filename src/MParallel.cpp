@@ -20,10 +20,10 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 #include "MParallel.h"
+#include "Utils.h"
 
 //CRT
 #include <cassert>
-#include <string>
 #include <sstream>
 #include <cstring>
 #include <queue>
@@ -36,14 +36,7 @@
 #include <cstdarg>
 
 //Win32
-#define NOMINMAX 1
-#define WIN32_LEAN_AND_MEAN 1
-#include <Windows.h>
-#include <Shellapi.h>
-
-//Utils
-#define MATCH(X,Y) (_wcsicmp((X), (Y)) == 0)
-#define BOUND(MIN,VAL,MAX) (std::min(std::max((MIN), (VAL)), (MAX)))
+#include <ShellAPI.h>
 
 //Const
 static const UINT FATAL_EXIT_CODE = 666;
@@ -95,10 +88,10 @@ namespace options
 //Globals
 static queue_t g_queue;
 static bool    g_logo_printed;
-static bool    g_initialized;
 static bool    g_isrunning[MAX_TASKS];
 static HANDLE  g_processes[MAX_TASKS];
-static DWORD   g_process_count;
+static DWORD   g_processes_active;
+static DWORD   g_processes_total;
 static DWORD   g_processes_completed[2];
 static DWORD   g_max_exit_code;
 static HANDLE  g_job_object;
@@ -115,54 +108,6 @@ static HANDLE  g_interrupt_event;
 
 //Forward declaration
 static inline void print_impl(const UINT, const wchar_t *const, ...);
-
-//MSVC compat
-#if defined(_MSC_VER) && (_MSC_VER < 1800)
-#define iswblank(X) (0)
-#endif
-
-
-// ==========================================================================
-// WIN32 SUPPORT
-// ==========================================================================
-
-//Close handle
-#define CLOSE_HANDLE(X) do \
-{ \
-	if((X)) \
-	{ \
-		CloseHandle((X)); \
-		(X) = NULL; \
-	} \
-} \
-while(0)
-
-// ==========================================================================
-// SYSTEM INFO
-// ==========================================================================
-
-static inline DWORD my_popcount(DWORD64 number)
-{
-	static const DWORD64 m1 = 0x5555555555555555;
-	static const DWORD64 m2 = 0x3333333333333333;
-	static const DWORD64 m4 = 0x0f0f0f0f0f0f0f0f;
-	static const DWORD64 h0 = 0x0101010101010101;
-	number -= (number >> 1) & m1;
-	number = (number & m2) + ((number >> 2) & m2);
-	number = (number + (number >> 4)) & m4;
-	return DWORD((number * h0) >> 56);
-}
-
-static inline DWORD processor_count(void)
-{
-	DWORD_PTR procMask, sysMask;
-	if (GetProcessAffinityMask(GetCurrentProcess(), &procMask, &sysMask))
-	{
-		const DWORD count = my_popcount(procMask);
-		return BOUND(DWORD(1), count, DWORD(MAX_TASKS));
-	}
-	return 1;
-}
 
 // ==========================================================================
 // LOGO / MANPAGE
@@ -186,7 +131,7 @@ static void print_manpage(void)
 	PRINT_NFO(L"  MParallel.exe [options] --input=commands.txt\n");
 	PRINT_NFO(L"  GenerateCommands.exe [parameters] | MParallel.exe [options] --stdin\n\n");
 	PRINT_NFO(L"Options:\n");
-	PRINT_NFO(L"  --count=<N>          Run at most N instances in parallel (Default is %u)\n", processor_count());
+	PRINT_NFO(L"  --count=<N>          Run at most N instances in parallel (Default is %u)\n", utils::get_processor_count());
 	PRINT_NFO(L"  --pattern=<PATTERN>  Generate commands from the specified PATTERN\n");
 	PRINT_NFO(L"  --separator=<SEP>    Set the command separator to SEP (Default is '%s')\n", DEFAULT_SEP);
 	PRINT_NFO(L"  --input=<FILE>       Read additional commands from specified FILE\n");
@@ -210,22 +155,6 @@ static void print_manpage(void)
 }
 
 // ==========================================================================
-// TIME UTILS
-// ==========================================================================
-
-static bool get_current_time(wchar_t *const buffer, const size_t len, const bool simple)
-{
-	time_t timer;
-	struct tm tm_info;
-	time(&timer);
-	if (localtime_s(&tm_info, &timer) == 0)
-	{
-		return (wcsftime(buffer, len, simple ? L"%Y%m%d-%H%M%S" : L"%Y:%m:%d %H:%M:%S", &tm_info) > 0);
-	}
-	return false;
-}
-
-// ==========================================================================
 // TEXT OUTPUT
 // ==========================================================================
 
@@ -238,68 +167,22 @@ static bool get_current_time(wchar_t *const buffer, const size_t len, const bool
 } \
 while(0)
 
-static const WORD CONSOLE_COLORS[5] =
-{
-	FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE,
-	FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN,
-	FOREGROUND_INTENSITY | FOREGROUND_RED,
-	FOREGROUND_INTENSITY | FOREGROUND_GREEN | FOREGROUND_BLUE,
-	FOREGROUND_INTENSITY | FOREGROUND_GREEN
-
-};
-
-static inline WORD get_console_attribs(const HANDLE console)
-{
-	static WORD s_attributes = 0;
-	static bool s_initialized = false;
-	if(!s_initialized)
-	{
-		CONSOLE_SCREEN_BUFFER_INFO buffer_info;
-		if (GetConsoleScreenBufferInfo(console, &buffer_info))
-		{
-			s_attributes = buffer_info.wAttributes;
-			s_initialized = true;
-		}
-	}
-	return s_attributes;
-}
-
-static inline WORD set_console_color(const HANDLE console, const UINT index)
-{
-	assert(index < 5);
-	const WORD original_attribs = get_console_attribs(console);
-	if (SetConsoleTextAttribute(console, (original_attribs & 0xFFF0) | CONSOLE_COLORS[index]))
-	{
-		return original_attribs;
-	}
-	return WORD(0);
-}
-
-static inline void write_console(const UINT type, const wchar_t *const fmt, va_list &args)
-{
-
-	if ((type < 0x5) && (!options::disable_concolor) && _isatty(_fileno(stderr)))
-	{
-		if(const HANDLE console = HANDLE(_get_osfhandle(_fileno(stderr))))
-		{
-			const WORD original_attribs = set_console_color(console, type);
-			vfwprintf_s(stderr, fmt, args);
-			fflush(stderr);
-			SetConsoleTextAttribute(console, original_attribs);
-		}
-	}
-	else
-	{
-		vfwprintf_s(stderr, fmt, args);
-		fflush(stderr);
-	}
-}
+#define UPDATE_PROGRESS() do \
+{ \
+	if((g_processes_total > 0) && (!options::disable_outputs)) \
+	{ \
+		const DWORD processes_completed = g_processes_completed[0] + g_processes_completed[1]; \
+		const double progress = double(processes_completed) / double(g_processes_total); \
+		utils::set_console_title(L"[%.1f%%] MParallel - Tasks completed: %u of %u", 100.0 * progress, processes_completed, g_processes_total); \
+	} \
+} \
+while(0)
 
 static inline void logging_impl(const wchar_t *const fmt, ...)
 {
 	assert(g_log_file != NULL);
 	wchar_t time_buffer[32];
-	if (get_current_time(time_buffer, 32, false))
+	if (utils::get_current_time(time_buffer, 32, false))
 	{
 		va_list args;
 		va_start(args, fmt);
@@ -311,7 +194,7 @@ static inline void logging_impl(const wchar_t *const fmt, ...)
 
 static inline void print_impl(const UINT type, const wchar_t *const fmt, ...)
 {
-	if(!(options::disable_outputs && g_initialized))
+	if(!(options::disable_outputs && (g_processes_total > 0)))
 	{
 		if ((type < 0x5) && (!g_logo_printed))
 		{
@@ -322,97 +205,9 @@ static inline void print_impl(const UINT type, const wchar_t *const fmt, ...)
 		{
 			va_list args;
 			va_start(args, fmt);
-			write_console(type, fmt, args);
+			utils::write_console(type, (!options::disable_concolor), fmt, args);
 			va_end(args);
 		}
-	}
-}
-
-// ==========================================================================
-// FILE FUNCTIONS
-// ==========================================================================
-
-//Check for FS object existence
-static bool fs_object_exists(const wchar_t *const path)
-{
-	return (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES);
-}
-
-//Check for directory existence
-static bool directory_exists(const wchar_t *const path)
-{
-	const DWORD attributes = GetFileAttributesW(path);
-	return ((attributes != INVALID_FILE_ATTRIBUTES) && (attributes & FILE_ATTRIBUTE_DIRECTORY));
-}
-
-//Generate a unique file name
-static std::wstring generate_unique_filename(const wchar_t *const directory, const wchar_t *const ext)
-{
-	wchar_t time_buffer[32];
-	if (get_current_time(time_buffer, 32, true))
-	{
-		DWORD n = 0;
-		std::wstringstream file_name;
-		do
-		{
-			if (n > 0xFFFFF)
-			{
-				return std::wstring(); /*deadlock prevention*/
-			}
-			file_name.str(std::wstring());
-			file_name << directory << L'\\' << time_buffer << L'-' << std::setfill(L'0') << std::setw(5) << std::hex << (n++) << ext;
-		} while (fs_object_exists(file_name.str().c_str()));
-		return file_name.str();
-	}
-	return std::wstring();
-}
-
-//Get full path
-static std::wstring get_full_path(const wchar_t *const rel_path)
-{
-	wchar_t path_buffer[MAX_PATH];
-	if (const wchar_t *const full_path = _wfullpath(path_buffer, rel_path, MAX_PATH))
-	{
-		return std::wstring(full_path);
-	}
-	else
-	{
-		if (const wchar_t *const full_path_malloced = _wfullpath(NULL, rel_path, 0))
-		{
-			std::wstring result(full_path_malloced);
-			free((void*)full_path_malloced);
-			return result;
-		}
-	}
-	return std::wstring();
-}
-
-//Split path into components
-static bool split_file_name(const wchar_t *const full_path, std::wstring &drive, std::wstring &dir, std::wstring &fname, std::wstring &ext)
-{
-	wchar_t buff_drive[_MAX_DRIVE], buff_dir[_MAX_DIR], buff_fname[_MAX_FNAME], buff_ext[_MAX_EXT];
-	const errno_t ret = _wsplitpath_s(full_path, buff_drive, buff_dir, buff_fname, buff_ext);
-	if(ret == 0)
-	{
-		drive = buff_drive; dir = buff_dir; fname = buff_fname; ext = buff_ext;
-		return true;
-	}
-	else if (ret == ERANGE)
-	{
-		const size_t len = std::max(size_t(MAX_PATH), wcslen(full_path)) + 128U;
-		bool success = false;
-		wchar_t* tmp_drive = new wchar_t[len], *tmp_dir = new wchar_t[len], *tmp_fname = new wchar_t[len], *tmp_ext = new wchar_t[len];
-		if (_wsplitpath_s(full_path, tmp_drive, len, tmp_dir, len, tmp_fname, len, tmp_ext, len) == 0)
-		{
-			drive = tmp_drive; dir = tmp_dir; fname = tmp_fname; ext = tmp_ext;
-			success = true;
-		}
-		delete[] tmp_drive; delete[] tmp_dir; delete[] tmp_fname; delete[] tmp_ext;
-		return success;
-	}
-	else
-	{
-		return false; /*failed the hard way*/
 	}
 }
 
@@ -478,79 +273,6 @@ static BOOL __stdcall console_ctrl_handler(DWORD ctrl_type)
 }
 
 // ==========================================================================
-// STRING SUPPORT ROUTINES
-// ==========================================================================
-
-//Parse unsigned integer
-static bool parse_uint32(const wchar_t *str, DWORD &value)
-{
-	if (swscanf_s(str, L"%lu", &value) != 1)
-	{
-		PRINT_ERR(L"ERROR: Argument \"%s\" doesn't look like a valid integer!\n\n", str);
-		return false;
-	}
-	return true;
-}
-
-//Replace sub-strings
-static DWORD replace_str(std::wstring& str, const std::wstring& needle, const std::wstring& replacement)
-{
-	DWORD count = 0;
-	for (;;)
-	{
-		const size_t start_pos = str.find(needle);
-		if (start_pos == std::string::npos)
-		{
-			break;
-		}
-		str.replace(start_pos, needle.length(), replacement);
-		count++;
-	}
-	return count;
-}
-
-//Check for space chars
-static bool contains_whitespace(const wchar_t *str)
-{
-	while (*str)
-	{
-		if (iswspace(*(str++)))
-		{
-			return true;
-		}
-	}
-	return false;
-}
-
-//Trim trailing EOL chars
-static wchar_t *trim_str(wchar_t *str)
-{
-	while ((*str) && iswspace(*str) || iswcntrl(*str) || iswblank(*str))
-	{
-		str++;
-	}
-	size_t pos = wcslen(str);
-	while (pos > 0)
-	{
-		--pos;
-		if (iswspace(str[pos]) || iswcntrl(str[pos]) || iswblank(str[pos]))
-		{
-			str[pos] = L'\0';
-			continue;
-		}
-		break;
-	}
-	return str;
-}
-
-//Wide string to UTF-8 string
-static std::string wstring_to_utf8(const std::wstring& str)
-{
-	std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
-	return myconv.to_bytes(str);
-}
-
-// ==========================================================================
 // COMMAND-LINE HANDLING
 // ==========================================================================
 
@@ -566,15 +288,15 @@ static DWORD expand_placeholder(std::wstring &str, const DWORD n, const wchar_t 
 		placeholder << L"{{" << n << L"}}";
 	}
 
-	if (options::auto_quote_vars && ((!value) || (!value[0]) || contains_whitespace(value)))
+	if (options::auto_quote_vars && ((!value) || (!value[0]) || utils::contains_whitespace(value)))
 	{
 		std::wstringstream replacement;
 		replacement << L'"' << value << L'"';
-		return replace_str(str, placeholder.str(), replacement.str());
+		return utils::replace_str(str, placeholder.str(), replacement.str());
 	}
 	else
 	{
-		return replace_str(str, placeholder.str(), value);
+		return utils::replace_str(str, placeholder.str(), value);
 	}
 }
 
@@ -593,7 +315,7 @@ static void parse_commands_simple(const int argc, const wchar_t *const argv[], c
 			{
 				command_buffer << L' ';
 			}
-			if ((!current[0]) || contains_whitespace(current))
+			if ((!current[0]) || utils::contains_whitespace(current))
 			{
 				command_buffer << L'"' << current << L'"';
 			}
@@ -632,12 +354,12 @@ static void parse_commands_pattern(const std::wstring &pattern, int argc, const 
 			static const wchar_t *const TYPES = L"FDPNX";
 			DWORD expanded = 0;
 			expanded += expand_placeholder(command_buffer, var_idx, 0x00, current);
-			const std::wstring file_full = get_full_path(current);
+			const std::wstring file_full = utils::get_full_path(current);
 			if (!file_full.empty())
 			{
 				expanded += expand_placeholder(command_buffer, var_idx, TYPES[0], file_full.c_str());
 				std::wstring file_drive, file_dir, file_fname, file_ext;
-				if (split_file_name(file_full.c_str(), file_drive, file_dir, file_fname, file_ext))
+				if (utils::split_file_name(file_full.c_str(), file_drive, file_dir, file_fname, file_ext))
 				{
 					expanded += expand_placeholder(command_buffer, var_idx, TYPES[1], file_drive.c_str());
 					expanded += expand_placeholder(command_buffer, var_idx, TYPES[2], file_dir.c_str());
@@ -708,6 +430,16 @@ while(0)
 } \
 while(0)
 
+#define PARSE_UINT32() do \
+{ \
+	if(!utils::parse_uint32(value, temp)) \
+	{ \
+		PRINT_ERR(L"ERROR: Argument \"%s\" doesn't look like a valid integer!\n\n", value); \
+		return false; \
+	} \
+} \
+while(0)
+
 //Load defaults
 static void reset_all_options(void)
 {
@@ -724,7 +456,7 @@ static void reset_all_options(void)
 	options::detached_console = false;
 	options::encoding_utf16 = false;
 	options::separator = DEFAULT_SEP;
-	options::max_instances = processor_count();
+	options::max_instances = utils::get_processor_count();
 	options::process_timeout = 0;
 	options::process_priority = PRIORITY_DEFAULT;
 }
@@ -743,12 +475,9 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 	else if (MATCH(option, L"count"))
 	{
 		REQUIRE_VALUE();
-		if (parse_uint32(value, temp))
-		{
-			options::max_instances = BOUND(DWORD(1), temp, DWORD(MAX_TASKS));
-			return true;
-		}
-		return false;
+		PARSE_UINT32();
+		options::max_instances = BOUND(DWORD(1), temp, DWORD(MAX_TASKS));
+		return true;
 	}
 	else if (MATCH(option, L"separator"))
 	{
@@ -801,22 +530,16 @@ static bool parse_option_string(const wchar_t *const option, const wchar_t *cons
 	else if (MATCH(option, L"timeout"))
 	{
 		REQUIRE_VALUE();
-		if (parse_uint32(value, temp))
-		{
-			options::process_timeout = temp;
-			return true;
-		}
-		return false;
+		PARSE_UINT32();
+		options::process_timeout = temp;
+		return true;
 	}
 	else if (MATCH(option, L"priority"))
 	{
 		REQUIRE_VALUE();
-		if (parse_uint32(value, temp))
-		{
-			options::process_priority = BOUND(DWORD(PRIORITY_LOWEST), temp, DWORD(PRIORITY_HIGHEST));
-			return true;
-		}
-		return false;
+		PARSE_UINT32();
+		options::process_priority = BOUND(DWORD(PRIORITY_LOWEST), temp, DWORD(PRIORITY_HIGHEST));
+		return true;
 	}
 	else if (MATCH(option, L"detached"))
 	{
@@ -903,10 +626,10 @@ static bool validate_options(void)
 	}
 	if (!options::redir_path_name.empty())
 	{
-		if (!directory_exists(options::redir_path_name.c_str()))
+		if (!utils::directory_exists(options::redir_path_name.c_str()))
 		{
 			CreateDirectoryW(options::redir_path_name.c_str(), NULL);
-			if (!directory_exists(options::redir_path_name.c_str()))
+			if (!utils::directory_exists(options::redir_path_name.c_str()))
 			{
 				PRINT_ERR(L"ERROR: Specified output directory \"%s\" does NOT exist!\n\n", options::redir_path_name.c_str());
 				return false;
@@ -959,7 +682,7 @@ static void parse_commands_file(FILE *const input)
 	while (wchar_t *const current_line = fgetws(line_buffer, 32768, input))
 	{
 		int argc;
-		const wchar_t *const trimmed = trim_str(current_line);
+		const wchar_t *const trimmed = utils::trim_str(current_line);
 		if (trimmed && trimmed[0])
 		{
 			PRINT_TRC(L"Read line: %s\n", trimmed);
@@ -1015,7 +738,7 @@ static void print_win32_error(const wchar_t *const format, const DWORD error)
 	wchar_t buffer[1024];
 	if (FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM, NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buffer, 1024, NULL) > 0)
 	{
-		PRINT_WRN(format, trim_str(buffer));
+		PRINT_WRN(format, utils::trim_str(buffer));
 	}
 }
 
@@ -1049,7 +772,7 @@ static bool release_process(const DWORD index, const bool cancelled)
 	g_isrunning[index] = false;
 
 	g_max_exit_code = std::max(g_max_exit_code, exit_code);
-	g_process_count--;
+	g_processes_active--;
 	g_processes_completed[succeeded ? 0 : 1]++;
 
 	return succeeded;
@@ -1090,7 +813,7 @@ static HANDLE create_job_object(void)
 //Create redirection file
 static HANDLE create_redirection_file(const wchar_t *const directory, const wchar_t *const command)
 {
-	const std::wstring file_name = generate_unique_filename(directory, L".log");
+	const std::wstring file_name = utils::generate_unique_filename(directory, L".log");
 	if (!file_name.empty())
 	{
 		SECURITY_ATTRIBUTES sec_attrib;
@@ -1101,7 +824,7 @@ static HANDLE create_redirection_file(const wchar_t *const directory, const wcha
 		if (handle != INVALID_HANDLE_VALUE)
 		{
 			static const char *const BOM = "\xef\xbb\xbf", *const EOL = "\r\n\r\n";
-			const std::string command_utf8 = wstring_to_utf8(command);
+			const std::string command_utf8 = utils::wstring_to_utf8(command);
 			DWORD written;
 			WriteFile(handle, BOM, (DWORD)strlen(BOM), &written, NULL);
 			WriteFile(handle, command_utf8.c_str(), (DWORD)command_utf8.size(), &written, NULL);
@@ -1182,7 +905,7 @@ static bool start_next_process(std::wstring command)
 				slot = (slot + 1) % options::max_instances;
 			}
 			while(g_isrunning[slot]);
-			g_process_count++;
+			g_processes_active++;
 			g_isrunning[slot] = true;
 			g_processes[slot] = process_info.hProcess;
 			success = true;
@@ -1263,11 +986,14 @@ static void run_all_processes(void)
 	DWORD slot = 0;
 	bool aborted = false, interrupted = false;
 
+	//Initialize the progress string
+	UPDATE_PROGRESS();
+
 	//MAIN PROCESSING LOOP
-	while (!((g_queue.empty() && (g_process_count < 1)) || aborted || interrupted))
+	while (!((g_queue.empty() && (g_processes_active < 1)) || aborted || interrupted))
 	{
 		//Launch the next process(es)
-		while ((!g_queue.empty()) && (g_process_count < options::max_instances))
+		while ((!g_queue.empty()) && (g_processes_active < options::max_instances))
 		{
 			if (g_interrupt_event)
 			{
@@ -1287,10 +1013,11 @@ static void run_all_processes(void)
 					break;
 				}
 			}
+			UPDATE_PROGRESS();
 		}
 
 		//Wait for one process to terminate
-		if ((!aborted) && (g_process_count > 0) && ((g_process_count >= options::max_instances) || g_queue.empty()))
+		if ((!aborted) && (g_processes_active > 0) && ((g_processes_active >= options::max_instances) || g_queue.empty()))
 		{
 			bool timeout = false;
 			const DWORD index = wait_for_process(timeout, interrupted);
@@ -1329,6 +1056,9 @@ static void run_all_processes(void)
 				}
 			}
 		}
+
+		//Update the progress string
+		UPDATE_PROGRESS();
 	}
 
 	//Was the process interrupted?
@@ -1350,13 +1080,13 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 {
 	//Initialize globals
 	g_logo_printed = false;
-	g_initialized = false;
 	g_interrupt_event = NULL;
 	g_log_file = NULL;
 	g_job_object = NULL;
 	g_processes_completed[0] = 0;
 	g_processes_completed[1] = 0;
-	g_process_count = 0;
+	g_processes_total = 0;
+	g_processes_active = 0;
 	g_max_exit_code = 0;
 
 	//Clear
@@ -1416,8 +1146,8 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 		return FATAL_EXIT_CODE;
 	}
 
-	//Ready to start processing
-	g_initialized = true;
+	//Save total process count
+	g_processes_total = DWORD(g_queue.size());
 
 	//No more "full" logo after this point
 	if(!g_logo_printed)
@@ -1441,6 +1171,12 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 		}
 	}
 
+	//Setup console icon
+	if(!options::disable_outputs)
+	{
+		utils::set_console_icon(L"MPARALLEL_ICON1");
+	}
+	
 	//Run processes
 	const clock_t timestamp_enter = clock();
 	run_all_processes();
@@ -1456,20 +1192,19 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	//Compute total time
 	const double total_time = double(timestamp_leave - timestamp_enter) / double(CLOCKS_PER_SEC);
 	PRINT_NFO(L"\n--------\n\n");
-	const DWORD total_process_count = g_processes_completed[0] + g_processes_completed[1];
 	if ((g_processes_completed[0] > 0) && (g_processes_completed[1] < 1))
 	{
-		PRINT_FIN(L"Executed %u task(s) in %.2f seconds. All tasks completed successfully.\n\n", total_process_count, total_time);
+		PRINT_FIN(L"Executed %u task(s) in %.2f seconds. All tasks completed successfully.\n\n", g_processes_total, total_time);
 	}
 	else
 	{
 		if(g_queue.size() > 0)
 		{
-			PRINT_WRN(L"Executed %u task(s) in %.2f seconds, %u task(s) failed, %u tasks skipped!\n\n", total_process_count, total_time, g_processes_completed[1], g_queue.size());
+			PRINT_WRN(L"Executed %u task(s) in %.2f seconds, %u task(s) failed, %u tasks skipped!\n\n", g_processes_total, total_time, g_processes_completed[1], g_queue.size());
 		}
 		else
 		{
-			PRINT_WRN(L"Executed %u task(s) in %.2f seconds, %u task(s) failed!\n\n", total_process_count, total_time, g_processes_completed[1]);
+			PRINT_WRN(L"Executed %u task(s) in %.2f seconds, %u task(s) failed!\n\n", g_processes_total, total_time, g_processes_completed[1]);
 		}
 
 	}
@@ -1482,6 +1217,13 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	{
 		fclose(g_log_file);
 		g_log_file = NULL;
+	}
+
+	//Restore console icon and title
+	if(!options::disable_outputs)
+	{
+		utils::set_console_icon(NULL);
+		utils::set_console_title(NULL);
 	}
 
 	return g_max_exit_code;
