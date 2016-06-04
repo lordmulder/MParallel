@@ -89,6 +89,9 @@ bool utils::get_current_time(wchar_t *const buffer, const size_t len, const bool
 // CONSOLE OUTPUT
 // ==========================================================================
 
+static HICON g_console_backup_icon = NULL;
+static wchar_t g_console_backup_title[MAX_PATH] = L"\0";
+
 static const WORD CONSOLE_COLORS[5] =
 {
 	FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE,
@@ -125,11 +128,33 @@ static inline WORD set_console_color(const HANDLE console, const UINT index)
 	return WORD(0);
 }
 
+static void restore_console_icon(void)
+{
+	if (g_console_backup_icon)
+	{
+		if (const HWND hConsole = GetConsoleWindow())
+		{
+			if (const HICON temp = (HICON) SendMessage(hConsole, WM_SETICON, ICON_SMALL, LPARAM(g_console_backup_icon)))
+			{
+				DestroyIcon(temp);
+			}
+			g_console_backup_icon = NULL;
+		}
+	}
+}
+
+static void restore_console_title(void)
+{
+	if (g_console_backup_title[0])
+	{
+		SetConsoleTitleW(g_console_backup_title);
+	}
+}
+
 void utils::set_console_title(const wchar_t *const fmt, ...)
 {
 	if (_isatty(_fileno(stderr)))
 	{
-		static wchar_t original_title[MAX_PATH] = L"\0";
 		if (fmt && fmt[0])
 		{
 			wchar_t title_buffer[MAX_PATH];
@@ -137,20 +162,16 @@ void utils::set_console_title(const wchar_t *const fmt, ...)
 			va_start(args, fmt);
 			if (_vsnwprintf_s(title_buffer, MAX_PATH, _TRUNCATE, fmt, args) > 0)
 			{
-				if (!original_title[0])
+				if (!g_console_backup_title[0])
 				{
-					GetConsoleTitleW(original_title, MAX_PATH);
+					if (GetConsoleTitleW(g_console_backup_title, MAX_PATH) > 0)
+					{
+						atexit(restore_console_title);
+					}
 				}
 				SetConsoleTitleW(title_buffer);
 			}
 			va_end(args);
-		}
-		else
-		{
-			if (original_title[0])
-			{
-				SetConsoleTitleW(original_title);
-			}
 		}
 	}
 }
@@ -159,23 +180,17 @@ bool utils::set_console_icon(const wchar_t *icon_name)
 {
 	if(const HWND hConsole = GetConsoleWindow())
 	{
-		static HICON original_icon = NULL;
 		if(icon_name && icon_name[0])
 		{
 			if(const HICON icon = (HICON) LoadImage(GetModuleHandle(NULL), icon_name, IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR))
 			{
-				original_icon = (HICON) SendMessage(hConsole, WM_SETICON, ICON_SMALL, LPARAM(icon));
-				return true;
-			}
-		}
-		else
-		{
-			if(original_icon)
-			{
-				if(const HICON icon = (HICON) SendMessage(hConsole, WM_SETICON, ICON_SMALL, LPARAM(original_icon)))
+				const HICON previous = (HICON) SendMessage(hConsole, WM_SETICON, ICON_SMALL, LPARAM(icon));
+				if (previous && (previous != icon) && (!g_console_backup_icon))
 				{
-					DestroyIcon(icon);
+					g_console_backup_icon = previous;
+					atexit(restore_console_icon);
 				}
+				return true;
 			}
 		}
 	}

@@ -34,6 +34,7 @@
 #include <iomanip>
 #include <codecvt>
 #include <cstdarg>
+#include <csignal>
 
 //Win32
 #include <ShellAPI.h>
@@ -116,15 +117,23 @@ static void print_logo(void);
 //Progress
 #define UPDATE_PROGRESS() do \
 { \
-	if((g_processes_total > 0) && (!options::disable_outputs)) \
+	if(!options::disable_outputs) \
 	{ \
-		const DWORD processes_completed = g_processes_completed[0] + g_processes_completed[1]; \
-		const double progress = double(processes_completed) / double(g_processes_total); \
-		utils::set_console_title(L"[%.1f%%] MParallel - Tasks completed: %u of %u", 100.0 * progress, processes_completed, g_processes_total); \
+		if(g_processes_total > 0) \
+		{ \
+			const DWORD processes_completed = g_processes_completed[0] + g_processes_completed[1]; \
+			const double progress = double(processes_completed) / double(g_processes_total); \
+			utils::set_console_title(L"[%.1f%%] MParallel - Tasks completed: %u of %u", 100.0 * progress, processes_completed, g_processes_total); \
+		} \
+		else \
+		{ \
+			utils::set_console_title(L"MParallel - Initializing..."); \
+		} \
 	} \
 } \
 while(0)
 
+//Actual print function
 static inline void print_impl(const UINT type, const wchar_t *const fmt, ...)
 {
 	if(!(options::disable_outputs && (g_processes_total > 0)))
@@ -157,6 +166,7 @@ static inline void print_impl(const UINT type, const wchar_t *const fmt, ...)
 } \
 while(0)
 
+//Actual logging function
 static inline void logging_impl(const wchar_t *const fmt, ...)
 {
 	assert(g_log_file != NULL);
@@ -171,6 +181,7 @@ static inline void logging_impl(const wchar_t *const fmt, ...)
 	}
 }
 
+//Open log file
 static void open_log_file(const wchar_t *file_name)
 {
 	if (!g_log_file)
@@ -271,6 +282,15 @@ static BOOL __stdcall console_ctrl_handler(DWORD ctrl_type)
 		}
 	}
 	return FALSE;
+}
+
+static void signal_handler(const int signo)
+{
+	signal(signo, signal_handler);
+	if (g_interrupt_event)
+	{
+		SetEvent(g_interrupt_event);
+	}
 }
 
 // ==========================================================================
@@ -1103,6 +1123,11 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	if (g_interrupt_event = CreateEventW(NULL, TRUE, FALSE, NULL))
 	{
 		SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
+		static const int SIGNAL[] = { SIGINT, SIGILL, SIGFPE, SIGSEGV, SIGTERM, SIGBREAK };
+		for(int i = 0; i < 4; i++)
+		{
+			signal(SIGNAL[i], signal_handler);
+		}
 	}
 
 	//Parse CLI arguments
@@ -1117,6 +1142,15 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	{
 		print_manpage();
 		return EXIT_SUCCESS;
+	}
+
+	//Initialize progress
+	UPDATE_PROGRESS();
+
+	//Setup console icon
+	if (!options::disable_outputs)
+	{
+		utils::set_console_icon(L"MPARALLEL_ICON1");
 	}
 
 	//Open log file
@@ -1173,12 +1207,6 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 			PRINT_WRN(L"WARNING: Failed to create the job object!\n\n");
 		}
 	}
-
-	//Setup console icon
-	if(!options::disable_outputs)
-	{
-		utils::set_console_icon(L"MPARALLEL_ICON1");
-	}
 	
 	//Run processes
 	const clock_t timestamp_enter = clock();
@@ -1217,14 +1245,6 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 
 	//Close log file
 	CLOSE_FILE(g_log_file);
-
-	//Restore console icon and title
-	if(!options::disable_outputs)
-	{
-		utils::set_console_icon(NULL);
-		utils::set_console_title(NULL);
-	}
-
 	return g_max_exit_code;
 }
 
