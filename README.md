@@ -145,6 +145,10 @@ Abort batch, if any command failed to execute. By default, if any command failed
 
 Do *not* add new sub-processes to job object. By default, MParallel adds all new sub-processes to a *Job Object*, which makes sure that all sub-processes will die immediately when the MParallel process is terminated. If this option is set, sub-processes are *not* added to the Job Object and may continue running after the MParallel was terminated.
 
+## `--discard-output`
+
+Discard the STDOUT and STDERR streams of any sub-processes. This means that *any* sub-process outputs will neither be visible in the console, nor will they be saved to a file. This option is mutually exclusive to the `--out-path` option.
+
 ## `--ignore-exitcode`
 
 Do *not* check the exit code of sub-processes. By default, MParallel checks the exit code of each sub-process. It assumes that the command has *failed*, if the process returned a *non-zero* exit code. If any command failed, this will be reported and, if `--abort` is set, any pending commands will *not* be executed. Setting this option causes MParallel to *ignore* exit codes. However, a command is still considered to have failed, if the processes could *not* be created.

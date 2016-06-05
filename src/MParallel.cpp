@@ -73,6 +73,7 @@ namespace options
 	static bool         disable_jobctrl;
 	static bool         disable_lineargv;
 	static bool         disable_outputs;
+	static bool         discard_textouts;
 	static bool         enable_tracing;
 	static bool         encoding_utf16;
 	static bool         force_use_shell;
@@ -231,6 +232,7 @@ namespace manpage
 		PRINT_NFO(L"  --detached           Run each sub-process in a separate console window\n");
 		PRINT_NFO(L"  --abort              Abort batch, if any command failed to execute\n");
 		PRINT_NFO(L"  --no-jobctrl         Do NOT add new sub-processes to job object\n");
+		PRINT_NFO(L"  --discard-output     Discard all stdout/stderr outputs of sub-processes\n");
 		PRINT_NFO(L"  --silent             Disable all textual messages, aka \"silent mode\"\n");
 		PRINT_NFO(L"  --no-colors          Do NOT applay colors to textual console output\n");
 		PRINT_NFO(L"  --trace              Enable more diagnostic outputs (for debugging only)\n");
@@ -546,6 +548,7 @@ namespace options
 		disable_jobctrl  = false;
 		disable_lineargv = false;
 		disable_outputs  = false;
+		discard_textouts = false;
 		enable_tracing   = false;
 		encoding_utf16   = false;
 		force_use_shell  = false;
@@ -661,6 +664,12 @@ namespace options
 				options::disable_jobctrl = true;
 				return true;
 			}
+			else if (MATCH(option, L"discard-output"))
+			{
+				REQUIRE_NO_VALUE();
+				options::discard_textouts = true;
+				return true;
+			}
 			else if (MATCH(option, L"ignore-exitcode"))
 			{
 				REQUIRE_NO_VALUE();
@@ -729,6 +738,11 @@ namespace options
 			if (options::detached_console && (!options::redir_path_name.empty()))
 			{
 				PRINT_ERR(L"ERROR: Options \"--out-path\" and \"--detached\" are mutually exclusive!\n\n");
+				return false;
+			}
+			if (options::discard_textouts && (!options::redir_path_name.empty()))
+			{
+				PRINT_ERR(L"ERROR: Options \"--out-path\" and \"--discard-output\" are mutually exclusive!\n\n");
 				return false;
 			}
 			if (!options::redir_path_name.empty())
@@ -937,6 +951,23 @@ namespace process
 					return handle;
 				}
 			}
+			PRINT_WRN(L"Warning: Failed to open redirection file!\n\n");
+			return NULL;
+		}
+
+		//Create NULL output file
+		static HANDLE create_null_output_handle(void)
+		{
+			SECURITY_ATTRIBUTES sec_attrib;
+			memset(&sec_attrib, 0, sizeof(SECURITY_ATTRIBUTES));
+			sec_attrib.bInheritHandle = TRUE;
+			sec_attrib.nLength = sizeof(SECURITY_ATTRIBUTES);
+			const HANDLE handle = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sec_attrib, OPEN_ALWAYS, 0, NULL);
+			if(handle != INVALID_HANDLE_VALUE)
+			{
+				return handle;
+			}
+			PRINT_WRN(L"Warning: Failed to open redirection file!\n\n");
 			return NULL;
 		}
 
@@ -979,6 +1010,14 @@ namespace process
 			if (!options::redir_path_name.empty())
 			{
 				if (redir_file = create_redirection_file(options::redir_path_name.c_str(), command.c_str()))
+				{
+					startup_info.dwFlags = startup_info.dwFlags | STARTF_USESTDHANDLES;
+					startup_info.hStdOutput = startup_info.hStdError = redir_file;
+				}
+			}
+			else if(options::discard_textouts)
+			{
+				if(redir_file = create_null_output_handle())
 				{
 					startup_info.dwFlags = startup_info.dwFlags | STARTF_USESTDHANDLES;
 					startup_info.hStdOutput = startup_info.hStdError = redir_file;

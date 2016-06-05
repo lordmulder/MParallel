@@ -3,6 +3,7 @@
 *.opensdf
 *.sdf
 *.suo
+*.user
 /*.html
 /*.opendb
 /Make.local.cmd
