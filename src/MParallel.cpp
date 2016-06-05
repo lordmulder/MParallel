@@ -726,6 +726,11 @@ namespace options
 				PRINT_ERR(L"ERROR: Options \"--trace\" and \"--silent\" are mutually exclusive!\n\n");
 				return false;
 			}
+			if (options::detached_console && (!options::redir_path_name.empty()))
+			{
+				PRINT_ERR(L"ERROR: Options \"--out-path\" and \"--detached\" are mutually exclusive!\n\n");
+				return false;
+			}
 			if (!options::redir_path_name.empty())
 			{
 				if (!utils::files::directory_exists(options::redir_path_name.c_str()))

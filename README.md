@@ -97,11 +97,13 @@ This option is typically used to process lines produced by other programs or by 
 
 ## `--logfile=<FILE>`
 
-Save logfile to **FILE**. The logfile contains information about all processes that have been created an the result. By default, *no* logfile will be created. If the logfile already exists, MParallel *appends* to the existing file.
+Save logfile to **FILE**. The logfile contains information about all processes that have been created an the result. By default, *no* logfile will be created. If the logfile already exists, MParallel *appends* to the existing file. Log output format is:
+
+    [YYYY:MM:DD hh:mm:ss] <log_message>
 
 ## `--out-path=<PATH>`
 
-Redirect the STDOUT and STDERR of each sub-process to a file. MParallel will create a separate output file for each process in the **PATH** directory. File names are generated according to the `YYYYMMDD-HHMMSS-NNNNN.log` pattern. Note that directory **PATH** must be existing and writable. Also note that redirected outputs do *not* appear in the console!
+Redirect the STDOUT and STDERR streams of each sub-process to a file. MParallel will create a separate output file for each process in the **PATH** directory. File names are generated according to the `YYYYMMDD-HHMMSS-NNNNN.log` pattern. Note that directory **PATH** must be existing and writable. Also note that all redirected outputs do **not** appear in the console!
 
 ## `--auto-wrap`
 
@@ -132,6 +134,8 @@ Run the commands (sub-processes) with the specified process priority. This can b
 ## `--detached`
 
 Run each sub-process in a *separate* console window. By default, all sub-processes are connected to the *same* console window as the main MParallel process. Thus, output from all processes will appear in the same console window, in an "interleaved" fashion. With this option set, each sub-process gets a separate console window.
+
+Note that this option is mutually exclusive to the `--out-path=<PATH>` option. That is because, when output redirection is in effect, the detached console windows would just end up being completely blank.
 
 ## `--abort`
 
