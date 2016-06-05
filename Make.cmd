@@ -71,17 +71,22 @@ REM ///////////////////////////////////////////////////////////////////////////
 "%~dp0\etc\cecho.exe" YELLOW "\n========[ COMPILE ]========"
 
 call "%MSVC_PATH%\vcvarsall.bat" x86
+set "MSBuildUseNoSolutionCache=1"
 
-for %%p in (x86,x64) do (
-	for %%t in (Clean,Rebuild,Build) do (
-		MSBuild.exe /property:Platform=%%p /property:Configuration=Release /target:%%t "%~dp0\MParallel_%SOLUTION_POSTFIX%.sln"
-		if not "!ERRORLEVEL!"=="0" goto BuildHasFailed
+for %%t in (Clean,Rebuild,Build) do (
+	set "CMD_LIST="
+	for %%p in (x86,x64) do (
+		set CMD_LIST=!CMD_LIST! : MSBuild.exe /property:Platform=%%p /property:Configuration=Release /target:%%t "%~dp0\MParallel_%SOLUTION_POSTFIX%.sln"
 	)
+	"%~dp0\etc\mparallel.exe" !CMD_LIST!
+	if not "!ERRORLEVEL!"=="0" goto BuildHasFailed
 )
 
+set CMD_LIST=
 for %%p in (win32,win64) do (
-	"%UPX3_PATH%\upx.exe" --best "%~dp0\bin\%PLATFORM_TOOLSET%\%%p\Release\MParallel.exe"
+	set CMD_LIST=!CMD_LIST! : "%UPX3_PATH%\upx.exe" --best "%~dp0\bin\%PLATFORM_TOOLSET%\%%p\Release\MParallel.exe"
 )
+"%~dp0\etc\mparallel.exe" !CMD_LIST!
 
 
 REM ///////////////////////////////////////////////////////////////////////////
