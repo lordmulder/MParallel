@@ -39,6 +39,9 @@
 //Win32
 #include <ShellAPI.h>
 
+//VLD
+#include <vld.h>
+
 //Const
 static const wchar_t *const DEFAULT_SEP = L":";
 static const size_t MAX_TASKS = MAXIMUM_WAIT_OBJECTS - 1;
@@ -107,7 +110,7 @@ namespace queue
 	//Dequeue next task
 	static inline std::wstring dequeue(void)
 	{
-		assert(g_queue.size() > 0);
+		assert(impl::g_queue.size() > 0);
 		const std::wstring next_item = impl::g_queue.front();
 		impl::g_queue.pop();
 		return next_item;
@@ -338,6 +341,7 @@ namespace error
 
 	static void install_error_handlers(void)
 	{
+#ifndef _DEBUG
 		_set_error_mode(_OUT_TO_STDERR);
 		if (impl::g_interrupt_event = CreateEventW(NULL, TRUE, FALSE, NULL))
 		{
@@ -350,6 +354,7 @@ namespace error
 		}
 		_set_invalid_parameter_handler(impl::my_invalid_parameter_handler);
 		_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif //_DEBUG
 	}
 }
 
@@ -1170,7 +1175,7 @@ namespace process
 
 		//Terminate all processes still running at this point
 		impl::terminate_running_processes();
-		assert(g_process_count < 1);
+		assert(process::impl::g_processes_active < 1);
 	}
 }
 
@@ -1305,8 +1310,6 @@ int wmain(const int argc, const wchar_t *const argv[])
 		return FATAL_EXIT_CODE;
 	}
 #else
-	setvbuf(stderr, NULL, _IONBF, 0);
-	_setmode(_fileno(stderr), _O_U8TEXT);
 	return mparallel_main(argc, argv);
 #endif //_DEBUG
 }
