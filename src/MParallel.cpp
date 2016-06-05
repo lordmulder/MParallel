@@ -1184,7 +1184,7 @@ namespace process
 
 		//Terminate all processes still running at this point
 		impl::terminate_running_processes();
-		assert(process::impl::g_processes_active < 1);
+		assert(process::g_processes_active < 1);
 	}
 }
 

@@ -75,8 +75,10 @@ set "MSBuildUseNoSolutionCache=1"
 
 for %%t in (Clean,Rebuild,Build) do (
 	set "CMD_LIST="
-	for %%p in (x86,x64) do (
-		set CMD_LIST=!CMD_LIST! : MSBuild.exe /property:Platform=%%p /property:Configuration=Release /target:%%t "%~dp0\MParallel_%SOLUTION_POSTFIX%.sln"
+	for %%c in (Release,Debug) do (
+		for %%p in (x86,x64) do (
+			set CMD_LIST=!CMD_LIST! : MSBuild.exe /property:Platform=%%p /property:Configuration=%%c /target:%%t "%~dp0\MParallel_%SOLUTION_POSTFIX%.sln"
+		)
 	)
 	"%~dp0\etc\mparallel.exe" !CMD_LIST!
 	if not "!ERRORLEVEL!"=="0" goto BuildHasFailed
@@ -87,6 +89,7 @@ for %%p in (win32,win64) do (
 	set CMD_LIST=!CMD_LIST! : "%UPX3_PATH%\upx.exe" --best "%~dp0\bin\%PLATFORM_TOOLSET%\%%p\Release\MParallel.exe"
 )
 "%~dp0\etc\mparallel.exe" !CMD_LIST!
+
 
 
 REM ///////////////////////////////////////////////////////////////////////////
@@ -107,16 +110,17 @@ set COUNTER=
 set REVISON=
 
 :GenerateOutfileNameNext
-set "OUT_PATH_X86=%~dp0\out\mparallel.%ISO_DATE%%REVISON%.bin-win32.zip"
-set "OUT_PATH_X64=%~dp0\out\mparallel.%ISO_DATE%%REVISON%.bin-win64.zip"
-set "OUT_PATH_SRC=%~dp0\out\mparallel.%ISO_DATE%%REVISON%.src.tgz"
+set "OUT_PATH=%~dp0\out\mparallel.%ISO_DATE%%REVISON%"
 
 set /a COUNTER=COUNTER+1
 set REVISON=.update-%COUNTER%
 
-if exist "%OUT_PATH_X86%" goto GenerateOutfileNameNext
-if exist "%OUT_PATH_X64%" goto GenerateOutfileNameNext
-if exist "%OUT_PATH_SRC%" goto GenerateOutfileNameNext
+if exist "%OUT_PATH%.source.tgz" goto GenerateOutfileNameNext
+for %%c in (Release,Debug) do (
+	for %%p in (win32,win64) do (
+		if exist "%OUT_PATH%.%%c-%%p.zip" goto GenerateOutfileNameNext
+	)
+)
 
 
 REM ///////////////////////////////////////////////////////////////////////////
@@ -125,10 +129,17 @@ REM ///////////////////////////////////////////////////////////////////////////
 
 "%~dp0\etc\cecho.exe" YELLOW "\n========[ PACKAGING ]========\n"
 
-"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X86%" "%~dp0\bin\%PLATFORM_TOOLSET%\win32\Release\MParallel.exe" "%~dp0\Example_?.cmd" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
-"%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH_X64%" "%~dp0\bin\%PLATFORM_TOOLSET%\win64\Release\MParallel.exe" "%~dp0\Example_?.cmd" "%~dp0\README.html" "%~dp0\COPYING.txt" < "%~dp0\COPYING.txt"
+set CMD_LIST=
+for %%c in (Release,Debug) do (
+	for %%p in (win32,win64) do (
+		set CMD_LIST=!CMD_LIST! : "%~dp0\etc\zip.exe" -j -9 -z "%OUT_PATH%.%%c-%%p.zip" "%~dp0\bin\%PLATFORM_TOOLSET%\%%p\%%c\MParallel.*" "%~dp0\Example_?.cmd" "%~dp0\README.html" "%~dp0\COPYING.txt" ^< "%~dp0\COPYING.txt"
+	)
+)
+"%~dp0\etc\mparallel.exe" --shell !CMD_LIST!
+if not "%ERRORLEVEL%"=="0" goto BuildHasFailed
 
-"%GIT2_PATH%\git.exe" archive --format tar.gz -9 --verbose --output "%OUT_PATH_SRC%" HEAD
+"%GIT2_PATH%\git.exe" archive --format tar.gz -9 --verbose --output "%OUT_PATH%.source.tgz" HEAD
+if not "%ERRORLEVEL%"=="0" goto BuildHasFailed
 
 
 REM ///////////////////////////////////////////////////////////////////////////
