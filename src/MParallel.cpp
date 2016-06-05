@@ -117,18 +117,11 @@ static void print_logo(void);
 //Progress
 #define UPDATE_PROGRESS() do \
 { \
-	if(!options::disable_outputs) \
+	if((!options::disable_outputs) && (g_processes_total > 0))\
 	{ \
-		if(g_processes_total > 0) \
-		{ \
-			const DWORD processes_completed = g_processes_completed[0] + g_processes_completed[1]; \
-			const double progress = double(processes_completed) / double(g_processes_total); \
-			utils::set_console_title(L"[%.1f%%] MParallel - Tasks completed: %u of %u", 100.0 * progress, processes_completed, g_processes_total); \
-		} \
-		else \
-		{ \
-			utils::set_console_title(L"MParallel - Initializing..."); \
-		} \
+		const DWORD processes_completed = g_processes_completed[0] + g_processes_completed[1]; \
+		const double progress = double(processes_completed) / double(g_processes_total); \
+		utils::set_console_title(L"[%.1f%%] MParallel - Tasks completed: %u of %u", 100.0 * progress, processes_completed, g_processes_total); \
 	} \
 } \
 while(0)
@@ -1144,13 +1137,11 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 		return EXIT_SUCCESS;
 	}
 
-	//Initialize progress
-	UPDATE_PROGRESS();
-
-	//Setup console icon
+	//Setup console icon and title text
 	if (!options::disable_outputs)
 	{
-		utils::set_console_icon(L"MPARALLEL_ICON1");
+		utils::inti_console_window(L"MPARALLEL_ICON1");
+		utils::set_console_title(L"MParallel - Initializing...");
 	}
 
 	//Open log file

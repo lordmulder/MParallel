@@ -46,6 +46,7 @@
 // SYSTEM INFO
 // ==========================================================================
 
+//Count '1' bits (aka "popcount")
 static inline DWORD my_popcount(DWORD64 number)
 {
 	static const DWORD64 m1 = 0x5555555555555555;
@@ -58,6 +59,7 @@ static inline DWORD my_popcount(DWORD64 number)
 	return DWORD((number * h0) >> 56);
 }
 
+//Get number of processors
 DWORD utils::get_processor_count(void)
 {
 	DWORD_PTR procMask, sysMask;
@@ -73,6 +75,7 @@ DWORD utils::get_processor_count(void)
 // TIME UTILS
 // ==========================================================================
 
+//Get current system time
 bool utils::get_current_time(wchar_t *const buffer, const size_t len, const bool simple)
 {
 	time_t timer;
@@ -89,9 +92,12 @@ bool utils::get_current_time(wchar_t *const buffer, const size_t len, const bool
 // CONSOLE OUTPUT
 // ==========================================================================
 
-static HICON g_console_backup_icon = NULL;
+//Globals
+static HICON   g_console_backup_icon            = NULL;
+static BOOL    g_console_backup_menu            = -1;
 static wchar_t g_console_backup_title[MAX_PATH] = L"\0";
 
+//Color constants
 static const WORD CONSOLE_COLORS[5] =
 {
 	FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE,
@@ -101,6 +107,7 @@ static const WORD CONSOLE_COLORS[5] =
 	FOREGROUND_INTENSITY | FOREGROUND_GREEN
 };
 
+//Get current console attributes
 static inline WORD get_console_attribs(const HANDLE console)
 {
 	static WORD s_attributes = 0;
@@ -117,6 +124,7 @@ static inline WORD get_console_attribs(const HANDLE console)
 	return s_attributes;
 }
 
+//Set console color
 static inline WORD set_console_color(const HANDLE console, const UINT index)
 {
 	assert(index < 5);
@@ -128,6 +136,7 @@ static inline WORD set_console_color(const HANDLE console, const UINT index)
 	return WORD(0);
 }
 
+//Restore original icon
 static void restore_console_icon(void)
 {
 	if (g_console_backup_icon)
@@ -143,6 +152,23 @@ static void restore_console_icon(void)
 	}
 }
 
+//Restore original "close" state
+static void restore_console_menu(void)
+{
+	if (g_console_backup_menu >= 0)
+	{
+		if (const HWND hConsole = GetConsoleWindow())
+		{
+			if(const HMENU hmenu = GetSystemMenu(hConsole, FALSE))
+			{
+				EnableMenuItem(hmenu, SC_CLOSE, g_console_backup_menu);
+				g_console_backup_menu = -1;
+			}
+		}
+	}
+}
+
+//Restore original title
 static void restore_console_title(void)
 {
 	if (g_console_backup_title[0])
@@ -151,6 +177,7 @@ static void restore_console_title(void)
 	}
 }
 
+//Set the console title
 void utils::set_console_title(const wchar_t *const fmt, ...)
 {
 	if (_isatty(_fileno(stderr)))
@@ -176,18 +203,28 @@ void utils::set_console_title(const wchar_t *const fmt, ...)
 	}
 }
 
-bool utils::set_console_icon(const wchar_t *icon_name)
+//Setup console icon and disable close
+bool utils::inti_console_window(const wchar_t *icon_name)
 {
 	if(const HWND hConsole = GetConsoleWindow())
 	{
+		if(const HMENU hmenu = GetSystemMenu(hConsole, FALSE))
+		{
+			const BOOL prev_state = EnableMenuItem(hmenu, SC_CLOSE, MF_GRAYED);
+			if((prev_state > 0) && (g_console_backup_menu < 0))
+			{
+				g_console_backup_menu = prev_state;
+				atexit(restore_console_menu);
+			}
+		}
 		if(icon_name && icon_name[0])
 		{
 			if(const HICON icon = (HICON) LoadImage(GetModuleHandle(NULL), icon_name, IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR))
 			{
-				const HICON previous = (HICON) SendMessage(hConsole, WM_SETICON, ICON_SMALL, LPARAM(icon));
-				if (previous && (previous != icon) && (!g_console_backup_icon))
+				const HICON prev_icon = (HICON) SendMessage(hConsole, WM_SETICON, ICON_SMALL, LPARAM(icon));
+				if (prev_icon && (prev_icon != icon) && (!g_console_backup_icon))
 				{
-					g_console_backup_icon = previous;
+					g_console_backup_icon = prev_icon;
 					atexit(restore_console_icon);
 				}
 				return true;
@@ -197,6 +234,7 @@ bool utils::set_console_icon(const wchar_t *icon_name)
 	return false;
 }
 
+//Write text to console
 void utils::write_console(const UINT type, const bool colors, const wchar_t *const fmt, va_list &args)
 {
 

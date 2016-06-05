@@ -42,7 +42,7 @@ namespace utils
 
 	//Console
 	void set_console_title(const wchar_t *const fmt, ...);
-	bool set_console_icon(const wchar_t *icon_name);
+	bool inti_console_window(const wchar_t *icon_name);
 	void write_console(const UINT type, const bool colors, const wchar_t *const fmt, va_list &args);
 
 	//String support
