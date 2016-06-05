@@ -65,62 +65,27 @@ priority_t;
 //Options
 namespace options
 {
+	static bool         abort_on_failure;
+	static bool         auto_quote_vars;
+	static std::wstring command_pattern;
+	static bool         detached_console;
+	static bool         disable_concolor;
+	static bool         disable_jobctrl;
+	static bool         disable_lineargv;
+	static bool         disable_outputs;
+	static bool         enable_tracing;
+	static bool         encoding_utf16;
+	static bool         force_use_shell;
+	static bool         ignore_exitcode;
+	static std::wstring input_file_name;
+	static std::wstring log_file_name;
 	static DWORD        max_instances;
 	static DWORD        process_priority;
 	static DWORD        process_timeout;
 	static bool         read_stdin_lines;
-	static bool         auto_quote_vars;
-	static bool         disable_lineargv;
-	static bool         force_use_shell;
-	static bool         abort_on_failure;
 	static bool         print_manpage;
-	static bool         enable_tracing;
-	static bool         disable_outputs;
-	static bool         disable_jobctrl;
-	static bool         disable_concolor;
-	static bool         ignore_exitcode;
-	static bool         detached_console;
-	static bool         encoding_utf16;
-	static std::wstring separator;
-	static std::wstring command_pattern;
-	static std::wstring log_file_name;
-	static std::wstring input_file_name;
 	static std::wstring redir_path_name;
-}
-
-// ==========================================================================
-// QUEUE
-// ==========================================================================
-
-namespace queue
-{
-	static DWORD g_queue_max = 0;
-	namespace impl
-	{
-		static queue_t g_queue;
-	}
-
-	//Enqueue next task
-	static inline void enqueue(const std::wstring item)
-	{
-		impl::g_queue.push(item);
-		g_queue_max = std::max(g_queue_max, DWORD(impl::g_queue.size()));
-	}
-
-	//Dequeue next task
-	static inline std::wstring dequeue(void)
-	{
-		assert(impl::g_queue.size() > 0);
-		const std::wstring next_item = impl::g_queue.front();
-		impl::g_queue.pop();
-		return next_item;
-	}
-
-	//Enqueue next task
-	static inline bool have_more(void)
-	{
-		return !impl::g_queue.empty();
-	}
+	static std::wstring separator;
 }
 
 // ==========================================================================
@@ -359,6 +324,42 @@ namespace error
 }
 
 // ==========================================================================
+// QUEUE
+// ==========================================================================
+
+namespace queue
+{
+	static DWORD g_queue_max = 0;
+	namespace impl
+	{
+		static queue_t g_queue;
+	}
+
+	//Enqueue next task
+	static inline void enqueue(const std::wstring item)
+	{
+		PRINT_TRC(L"Enqueue: ``%s创\n", item.c_str());
+		impl::g_queue.push(item);
+		g_queue_max = std::max(g_queue_max, DWORD(impl::g_queue.size()));
+	}
+
+	//Dequeue next task
+	static inline std::wstring dequeue(void)
+	{
+		assert(impl::g_queue.size() > 0);
+		const std::wstring next_item = impl::g_queue.front();
+		impl::g_queue.pop();
+		return next_item;
+	}
+
+	//Enqueue next task
+	static inline bool have_more(void)
+	{
+		return !impl::g_queue.empty();
+	}
+}
+
+// ==========================================================================
 // COMMAND-LINE HANDLING
 // ==========================================================================
 
@@ -393,6 +394,7 @@ namespace command
 	{
 		int i = offset;
 		std::wstringstream command_buffer;
+		PRINT_TRC(L"Separator: ``%s创\n", separator ? separator : L"<NULL>");
 		while (i < argc)
 		{
 			const wchar_t *const current = argv[i++];
@@ -433,6 +435,8 @@ namespace command
 	{
 		int i = offset, var_idx = 0;
 		std::wstring command_buffer = pattern;
+		PRINT_TRC(L"Separator: ``%s创\n", separator ? separator : L"<NULL>");
+		PRINT_TRC(L"Pattern: ``%s创\n", pattern.c_str());
 		while (i < argc)
 		{
 			const wchar_t *const current = argv[i++];
@@ -534,27 +538,27 @@ namespace options
 	//Load defaults
 	static void reset_all_options(void)
 	{
-		force_use_shell = false;
-		read_stdin_lines = false;
-		auto_quote_vars = false;
-		disable_lineargv = false;
 		abort_on_failure = false;
-		enable_tracing = false;
-		disable_outputs = false;
-		disable_jobctrl = false;
-		disable_concolor = false;
-		ignore_exitcode = false;
+		auto_quote_vars  = false;
+		command_pattern  = std::wstring();
 		detached_console = false;
-		encoding_utf16 = false;
-		separator = DEFAULT_SEP;
-		max_instances = utils::sysinfo::get_processor_count();
-		process_timeout = 0;
+		disable_concolor = false;
+		disable_jobctrl  = false;
+		disable_lineargv = false;
+		disable_outputs  = false;
+		enable_tracing   = false;
+		encoding_utf16   = false;
+		force_use_shell  = false;
+		ignore_exitcode  = false;
+		input_file_name  = std::wstring();
+		log_file_name    = std::wstring();
+		max_instances    = utils::sysinfo::get_processor_count();
 		process_priority = PRIORITY_DEFAULT;
-		separator.clear();
-		command_pattern.clear();
-		log_file_name.clear();
-		input_file_name.clear();
-		redir_path_name.clear();
+		process_timeout  = 0;
+		print_manpage    = false;
+		read_stdin_lines = false;
+		redir_path_name  = std::wstring();
+		separator        = DEFAULT_SEP;
 	}
 
 	namespace impl
@@ -1261,7 +1265,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 
 	//Logging
 	LOG(L"Enqueued tasks: %u (Parallel instances: %u)\n", queue::impl::g_queue.size(), options::max_instances);
-	PRINT_TRC(L"Tasks in queue: %zu\n", queue::impl::g_queue.size());
+	PRINT_TRC(L"Tasks in queue: %u\n", queue::impl::g_queue.size());
 	PRINT_TRC(L"Maximum parallel instances: %u\n", options::max_instances);
 	
 	//Run processes
