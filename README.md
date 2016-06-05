@@ -34,7 +34,7 @@ Note how the distinct commands and their related arguments are delimited by colo
 
 A slightly more advanced example, using a *command pattern* to express the above command-line more elegantly:
 
-    MParallel.exe --count=3--pattern="ping.exe -n 16 {{0}}" fsf.org : gnu.org : w3c.org
+    MParallel.exe --count=3 --pattern="ping.exe -n 16 {{0}}" fsf.org : gnu.org : w3c.org
 
 Note that, in this example, the `{{0}}` placeholder will be replaced with the corresponding command tokens.
 
