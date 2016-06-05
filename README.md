@@ -219,6 +219,14 @@ License: CC Attribution 4.0 license
 
 # Version History
 
+## v1.0.3 [2016-06-05]
+
+* Implemented progress display in console title and and console icon (disabled by `--silent`)
+
+* Open the log file in "shared" mode so that it is *readable* while MParallel is still running
+
+*  More code clean up and refactoring
+
 ## v1.0.2 [2016-06-03]
 
 * Fixed various regressions.
