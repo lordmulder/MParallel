@@ -33,31 +33,50 @@
 //Utils
 #define MATCH(X,Y) (_wcsicmp((X), (Y)) == 0)
 #define BOUND(MIN,VAL,MAX) (std::min(std::max((MIN), (VAL)), (MAX)))
+#define FATAL_EXIT_CODE ((UINT)666)
 
 namespace utils
 {
 	//System info
-	DWORD get_processor_count(void);
-	bool get_current_time(wchar_t *const buffer, const size_t len, const bool simple);
+	namespace sysinfo
+	{
+		DWORD get_processor_count(void);
+		bool get_current_time(wchar_t *const buffer, const size_t len, const bool simple);
+	}
 
 	//Console
-	void set_console_title(const wchar_t *const fmt, ...);
-	bool inti_console_window(const wchar_t *icon_name);
-	void write_console(const UINT type, const bool colors, const wchar_t *const fmt, va_list &args);
+	namespace console
+	{
+		void set_console_title(const wchar_t *const fmt, ...);
+		bool inti_console_window(const wchar_t *icon_name);
+		void write_console(const UINT type, const bool colors, const wchar_t *const fmt, va_list &args);
+	}
 
 	//String support
-	bool parse_uint32(const wchar_t *str, DWORD &value);
-	DWORD replace_str(std::wstring& str, const std::wstring& needle, const std::wstring& replacement);
-	bool contains_whitespace(const wchar_t *str);
-	wchar_t *trim_str(wchar_t *str);
-	std::string wstring_to_utf8(const std::wstring& str);
+	namespace string
+	{
+		bool parse_uint32(const wchar_t *str, DWORD &value);
+		DWORD replace_str(std::wstring& str, const std::wstring& needle, const std::wstring& replacement);
+		bool contains_whitespace(const wchar_t *str);
+		wchar_t *trim_str(wchar_t *str);
+		std::string wstring_to_utf8(const std::wstring& str);
+	}
+
+	//Job control
+	namespace jobs
+	{
+		bool assign_process_to_job(const HANDLE process);
+	}
 
 	//File utils
-	bool fs_object_exists(const wchar_t *const path);
-	bool directory_exists(const wchar_t *const path);
-	std::wstring generate_unique_filename(const wchar_t *const directory, const wchar_t *const ext);
-	std::wstring get_full_path(const wchar_t *const rel_path);
-	bool split_file_name(const wchar_t *const full_path, std::wstring &drive, std::wstring &dir, std::wstring &fname, std::wstring &ext);
+	namespace files
+	{
+		bool object_exists(const wchar_t *const path);
+		bool directory_exists(const wchar_t *const path);
+		std::wstring generate_unique_filename(const wchar_t *const directory, const wchar_t *const ext);
+		std::wstring get_full_path(const wchar_t *const rel_path);
+		bool split_file_name(const wchar_t *const full_path, std::wstring &drive, std::wstring &dir, std::wstring &fname, std::wstring &ext);
+	}
 }
 
 //Close file

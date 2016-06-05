@@ -24,7 +24,7 @@
 //Version
 #define MPARALLEL_VERSION_MAJOR 1
 #define MPARALLEL_VERSION_MINOR 0
-#define MPARALLEL_VERSION_PATCH 2
+#define MPARALLEL_VERSION_PATCH 3
 
 //Support macros
 #define __MPARALLEL_VERSION_STR__(X,Y,Z) #X "." #Y "." #Z
