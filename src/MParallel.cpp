@@ -833,14 +833,15 @@ namespace options
 	if((!options::disable_outputs) && (queue::g_queue_max > 0))\
 	{ \
 		const DWORD processes_completed = g_processes_completed[0] + g_processes_completed[1]; \
-		const double progress = double(processes_completed) / double(queue::g_queue_max); \
-		utils::console::set_console_title(L"[%.1f%%] MParallel - Tasks completed: %u of %u", 100.0 * progress, processes_completed, queue::g_queue_max); \
+		const double progress = 100.0 * (double(processes_completed) / double(queue::g_queue_max)); \
+		utils::console::set_console_title(L"[%.1f%%] MParallel - %u tasks running (%u of %u completed)", progress, g_processes_active, processes_completed, queue::g_queue_max); \
 	} \
 } \
 while(0)
 
 namespace process
 {
+	static DWORD   g_processes_active = 0;
 	static DWORD   g_processes_completed[2] = { 0, 0 };
 	static DWORD   g_max_exit_code = 0;
 		
@@ -848,7 +849,6 @@ namespace process
 	{
 		static bool    g_isrunning[MAX_TASKS];
 		static HANDLE  g_processes[MAX_TASKS];
-		static DWORD   g_processes_active = 0;
 
 		//Print Win32 error message
 		static void print_win32_error(const wchar_t *const format, const DWORD error)
@@ -1087,7 +1087,7 @@ namespace process
 		g_processes_completed[0] = 0;
 		g_processes_completed[1] = 0;
 		g_max_exit_code = 0;
-		impl::g_processes_active = 0;
+		g_processes_active = 0;
 
 		memset(impl::g_processes, 0, sizeof(HANDLE) * MAX_TASKS);
 		memset(impl::g_isrunning, 0, sizeof(bool)   * MAX_TASKS);
@@ -1103,10 +1103,10 @@ namespace process
 		UPDATE_PROGRESS();
 
 		//MAIN PROCESSING LOOP
-		while (!(((!queue::have_more()) && (impl::g_processes_active < 1)) || aborted || interrupted))
+		while (!(((!queue::have_more()) && (g_processes_active < 1)) || aborted || interrupted))
 		{
 			//Launch the next process(es)
-			while (queue::have_more() && (impl::g_processes_active < options::max_instances))
+			while (queue::have_more() && (g_processes_active < options::max_instances))
 			{
 				if (error::interrupted())
 				{
@@ -1127,7 +1127,7 @@ namespace process
 			}
 
 			//Wait for one process to terminate
-			if ((!aborted) && (impl::g_processes_active > 0) && ((impl::g_processes_active >= options::max_instances) || (!queue::have_more())))
+			if ((!aborted) && (g_processes_active > 0) && ((g_processes_active >= options::max_instances) || (!queue::have_more())))
 			{
 				bool timeout = false;
 				const DWORD index = impl::wait_for_process(timeout, interrupted);

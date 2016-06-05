@@ -220,17 +220,10 @@ namespace utils
 		{
 			if(const HWND hConsole = GetConsoleWindow())
 			{
-				if(const HMENU hmenu = GetSystemMenu(hConsole, FALSE))
-				{
-					const BOOL prev_state = EnableMenuItem(hmenu, SC_CLOSE, MF_GRAYED);
-					if((prev_state > 0) && (impl::g_console_backup_menu < 0))
-					{
-						impl::g_console_backup_menu = prev_state;
-						atexit(impl::restore_console_menu);
-					}
-				}
+				bool success = true;
 				if(icon_name && icon_name[0])
 				{
+					success = false;
 					if(const HICON icon = (HICON) LoadImage(GetModuleHandle(NULL), icon_name, IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR))
 					{
 						const HICON prev_icon = (HICON) SendMessage(hConsole, WM_SETICON, ICON_SMALL, LPARAM(icon));
@@ -239,9 +232,23 @@ namespace utils
 							impl::g_console_backup_icon = prev_icon;
 							atexit(impl::restore_console_icon);
 						}
-						return true;
+						success = true;
 					}
 				}
+				if(success)
+				{
+					if(const HMENU hmenu = GetSystemMenu(hConsole, FALSE))
+					{
+						const BOOL prev_state = EnableMenuItem(hmenu, SC_CLOSE, MF_GRAYED);
+						success = (prev_state >= 0);
+						if(success && (impl::g_console_backup_menu < 0))
+						{
+							impl::g_console_backup_menu = prev_state;
+							atexit(impl::restore_console_menu);
+						}
+					}
+				}
+				return success;
 			}
 			return false;
 		}
