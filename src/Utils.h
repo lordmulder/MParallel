@@ -55,7 +55,8 @@ namespace utils
 	//String support
 	namespace string
 	{
-		bool parse_uint32(const wchar_t *str, DWORD &value);
+		bool parse_uint32(const wchar_t *const str, DWORD &value);
+		bool parse_bool(const wchar_t *const str, bool &value);
 		DWORD replace_str(std::wstring& str, const std::wstring& needle, const std::wstring& replacement);
 		bool contains_whitespace(const wchar_t *str);
 		wchar_t *trim_str(wchar_t *str);
@@ -72,10 +73,12 @@ namespace utils
 	namespace files
 	{
 		bool object_exists(const wchar_t *const path);
+		bool file_exists(const wchar_t *const path);
 		bool directory_exists(const wchar_t *const path);
 		std::wstring generate_unique_filename(const wchar_t *const directory, const wchar_t *const ext);
 		std::wstring get_full_path(const wchar_t *const rel_path);
 		bool split_file_name(const wchar_t *const full_path, std::wstring &drive, std::wstring &dir, std::wstring &fname, std::wstring &ext);
+		std::wstring get_running_executable(void);
 	}
 }
 

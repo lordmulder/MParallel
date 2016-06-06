@@ -509,28 +509,40 @@ namespace command
 { \
 	if ((!value) || (!value[0])) \
 	{ \
-		PRINT_ERR(L"ERROR: Argumet for option \"--%s\" is missing!\n\n", option); \
+		PRINT_ERR(L"ERROR: Argument for option \"--%s\" is missing!\n\n", option); \
 		return false; \
 	} \
 } \
 while(0)
 
-#define REQUIRE_NO_VALUE() do \
+#define PARSE_UINT32(MIN, OUT, MAX) do \
 { \
-	if (value && value[0]) \
-	{ \
-		PRINT_ERR(L"ERROR: Excess argumet for option \"--%s\" encountred!\n\n", option); \
-		return false; \
-	} \
-} \
-while(0)
-
-#define PARSE_UINT32() do \
-{ \
-	if(!utils::string::parse_uint32(value, temp)) \
+	REQUIRE_VALUE(); \
+	DWORD _temp; \
+	if(!utils::string::parse_uint32(value, _temp)) \
 	{ \
 		PRINT_ERR(L"ERROR: Argument \"%s\" doesn't look like a valid integer!\n\n", value); \
 		return false; \
+	} \
+	(OUT) = BOUND((MIN), _temp, (MAX)); \
+} \
+while(0)
+
+#define PARSE_BOOL(OUT) do \
+{ \
+	if(value && value[0]) \
+	{ \
+		bool _temp; \
+		if(!utils::string::parse_bool(value, _temp)) \
+		{ \
+			PRINT_ERR(L"ERROR: Argument \"%s\" doesn't look like a valid boolean!\n\n", value); \
+			return false; \
+		} \
+		(OUT) = _temp; \
+	} \
+	else \
+	{ \
+		(OUT) = true; \
 	} \
 } \
 while(0)
@@ -566,11 +578,13 @@ namespace options
 
 	namespace impl
 	{
+		//Line buffer
+		static const DWORD LINE_BUFFER_SIZE = 32768;
+		static wchar_t g_line_buffer[LINE_BUFFER_SIZE];
+
 		//Parse option
 		static bool parse_option_string(const wchar_t *const option, const wchar_t *const value)
 		{
-			DWORD temp;
-
 			if (MATCH(option, L"pattern"))
 			{
 				REQUIRE_VALUE();
@@ -579,9 +593,7 @@ namespace options
 			}
 			else if (MATCH(option, L"count"))
 			{
-				REQUIRE_VALUE();
-				PARSE_UINT32();
-				options::max_instances = BOUND(DWORD(1), temp, DWORD(MAX_TASKS));
+				PARSE_UINT32(DWORD(1), options::max_instances, DWORD(MAX_TASKS));
 				return true;
 			}
 			else if (MATCH(option, L"separator"))
@@ -592,8 +604,7 @@ namespace options
 			}
 			else if (MATCH(option, L"stdin"))
 			{
-				REQUIRE_NO_VALUE();
-				options::read_stdin_lines = true;
+				PARSE_BOOL(options::read_stdin_lines);
 				return true;
 			}
 			else if (MATCH(option, L"input"))
@@ -616,94 +627,77 @@ namespace options
 			}
 			else if (MATCH(option, L"auto-wrap"))
 			{
-				REQUIRE_NO_VALUE();
-				options::auto_quote_vars = true;
+				PARSE_BOOL(options::auto_quote_vars);
 				return true;
 			}
 			else if (MATCH(option, L"no-split-lines"))
 			{
-				REQUIRE_NO_VALUE();
-				options::disable_lineargv = true;
+				PARSE_BOOL(options::disable_lineargv);
 				return true;
 			}
 			else if (MATCH(option, L"shell"))
 			{
-				REQUIRE_NO_VALUE();
-				options::force_use_shell = true;
+				PARSE_BOOL(options::force_use_shell);
 				return true;
 			}
 			else if (MATCH(option, L"timeout"))
 			{
-				REQUIRE_VALUE();
-				PARSE_UINT32();
-				options::process_timeout = temp;
+				PARSE_UINT32(DWORD(0), options::process_timeout, DWORD(MAXDWORD-1));
 				return true;
 			}
 			else if (MATCH(option, L"priority"))
 			{
-				REQUIRE_VALUE();
-				PARSE_UINT32();
-				options::process_priority = BOUND(DWORD(PRIORITY_LOWEST), temp, DWORD(PRIORITY_HIGHEST));
+				PARSE_UINT32(DWORD(PRIORITY_LOWEST), options::process_priority, DWORD(PRIORITY_HIGHEST));
 				return true;
 			}
 			else if (MATCH(option, L"detached"))
 			{
-				REQUIRE_NO_VALUE();
-				options::detached_console = true;
+				PARSE_BOOL(options::detached_console);
 				return true;
 			}
 			else if (MATCH(option, L"abort"))
 			{
-				REQUIRE_NO_VALUE();
-				options::abort_on_failure = true;
+				PARSE_BOOL(options::abort_on_failure);
 				return true;
 			}
 			else if (MATCH(option, L"no-jobctrl"))
 			{
-				REQUIRE_NO_VALUE();
-				options::disable_jobctrl = true;
+				PARSE_BOOL(options::disable_jobctrl);
 				return true;
 			}
 			else if (MATCH(option, L"discard-output"))
 			{
-				REQUIRE_NO_VALUE();
-				options::discard_textouts = true;
+				PARSE_BOOL(options::discard_textouts);
 				return true;
 			}
 			else if (MATCH(option, L"ignore-exitcode"))
 			{
-				REQUIRE_NO_VALUE();
-				options::ignore_exitcode = true;
+				PARSE_BOOL(options::ignore_exitcode);
 				return true;
 			}
 			else if (MATCH(option, L"utf16"))
 			{
-				REQUIRE_NO_VALUE();
-				options::encoding_utf16 = true;
+				PARSE_BOOL(options::encoding_utf16);
 				return true;
 			}
 			else if (MATCH(option, L"trace"))
 			{
-				REQUIRE_NO_VALUE();
-				options::enable_tracing = true;
+				PARSE_BOOL(options::enable_tracing);
 				return true;
 			}
 			else if (MATCH(option, L"silent"))
 			{
-				REQUIRE_NO_VALUE();
-				options::disable_outputs = true;
+				PARSE_BOOL(options::disable_outputs);
 				return true;
 			}
 			else if (MATCH(option, L"no-colors"))
 			{
-				REQUIRE_NO_VALUE();
-				options::disable_concolor = true;
+				PARSE_BOOL(options::disable_concolor);
 				return true;
 			}
 			else if (MATCH(option, L"help"))
 			{
-				REQUIRE_NO_VALUE();
-				options::print_manpage = true;
+				PARSE_BOOL(options::print_manpage);
 				return true;
 			}
 
@@ -759,6 +753,38 @@ namespace options
 			}
 			return true;
 		}
+
+		static bool parse_options_file(const wchar_t *const file_name)
+		{
+			static const wchar_t *const HEADER = L"[MParallel]";
+			FILE *input = NULL;
+			if (_wfopen_s(&input, file_name, L"r,ccs=UTF-8") == 0)
+			{
+				bool found_header = false;
+				while (wchar_t *const current_line = fgetws(impl::g_line_buffer, impl::LINE_BUFFER_SIZE, input))
+				{
+					const wchar_t *const trimmed = utils::string::trim_str(current_line);
+					if (trimmed && trimmed[0] && (trimmed[0] != L'#') && (trimmed[0] != L';'))
+					{
+						if(found_header && (trimmed[0] != L'[') && (trimmed[0] != L']'))
+						{
+							if(!parse_option_string(trimmed))
+							{
+								return false;
+							}
+						}
+						else
+						{
+							found_header = MATCH(HEADER, trimmed);
+						}
+					}
+				}
+				CLOSE_FILE(input);
+				return true;
+			}
+			PRINT_ERR(L"ERROR: Failed to open options file \"%s\" for reading!\n\n", file_name);
+			return false;
+		}
 	}
 
 	//Parse arguments
@@ -797,11 +823,33 @@ namespace options
 		return impl::validate_options();
 	}
 
-	//Read from file stream
+	//Read options file
+	static bool parse_options_file(void)
+	{
+		const std::wstring executable_file = utils::files::get_running_executable();
+		if(!executable_file.empty())
+		{
+			const std::wstring executable_path = utils::files::get_full_path(executable_file.c_str());
+			if(!executable_path.empty())
+			{
+				std::wstring file_drive, file_dir, file_fname, file_ext;
+				if(utils::files::split_file_name(executable_path.c_str(), file_drive, file_dir, file_fname, file_ext))
+				{
+					const std::wstring options_file_path = file_drive + file_dir + file_fname + L".ini";
+					if((!options_file_path.empty()) && utils::files::file_exists(options_file_path.c_str()))
+					{
+						return impl::parse_options_file(options_file_path.c_str());
+					}
+				}
+			}
+		}
+		return true;
+	}
+
+	//Read commands from file stream
 	static void parse_commands_file(FILE *const input)
 	{
-		wchar_t line_buffer[32768];
-		while (wchar_t *const current_line = fgetws(line_buffer, 32768, input))
+		while (wchar_t *const current_line = fgetws(impl::g_line_buffer, impl::LINE_BUFFER_SIZE, input))
 		{
 			int argc;
 			const wchar_t *const trimmed = utils::string::trim_str(current_line);
@@ -827,7 +875,7 @@ namespace options
 		}
 	}
 
-	//Read from file
+	//Read commands from file name
 	static bool parse_commands_file(const wchar_t *const file_name)
 	{
 		FILE *file = NULL;
@@ -1247,6 +1295,12 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	//Init options
 	options::reset_all_options();
 	process::reset_counters();
+
+	if (!options::parse_options_file())
+	{
+		PRINT_WRN(L"Failed to parse options file. Please fix your options file and try again!\n\n");
+		return FATAL_EXIT_CODE;
+	}
 
 	//Parse CLI arguments
 	if (!options::parse_arguments(argc, argv))

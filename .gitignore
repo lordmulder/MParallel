@@ -1,5 +1,6 @@
 *.VC.db
 *.aps
+*.old
 *.opensdf
 *.sdf
 *.suo

@@ -42,6 +42,13 @@
 #define iswblank(X) (0)
 #endif
 
+//Buffer
+namespace utils
+{
+	static const DWORD SCRATCH_BUFFER_SIZE = 32768;
+	static wchar_t g_scratch_buffer[SCRATCH_BUFFER_SIZE];
+}
+
 // ==========================================================================
 // SYSTEM INFO
 // ==========================================================================
@@ -104,9 +111,9 @@ namespace utils
 		namespace impl
 		{
 			//Globals
-			static HICON   g_console_backup_icon            = NULL;
-			static BOOL    g_console_backup_menu            = -1;
-			static wchar_t g_console_backup_title[MAX_PATH] = L"\0";
+			static HICON   g_console_backup_icon       = NULL;
+			static BOOL    g_console_backup_menu       = -1;
+			static wchar_t g_console_backup_title[512] = L"\0";
 
 			//Color constants
 			static const WORD CONSOLE_COLORS[5] =
@@ -196,19 +203,18 @@ namespace utils
 			{
 				if (fmt && fmt[0])
 				{
-					wchar_t title_buffer[MAX_PATH];
 					va_list args;
 					va_start(args, fmt);
-					if (_vsnwprintf_s(title_buffer, MAX_PATH, _TRUNCATE, fmt, args) > 0)
+					if (_vsnwprintf_s(g_scratch_buffer, SCRATCH_BUFFER_SIZE, _TRUNCATE, fmt, args) > 0)
 					{
 						if (!impl::g_console_backup_title[0])
 						{
-							if (GetConsoleTitleW(impl::g_console_backup_title, MAX_PATH) > 0)
+							if (GetConsoleTitleW(impl::g_console_backup_title, 512) > 0)
 							{
 								atexit(impl::restore_console_title);
 							}
 						}
-						SetConsoleTitleW(title_buffer);
+						SetConsoleTitleW(g_scratch_buffer);
 					}
 					va_end(args);
 				}
@@ -286,13 +292,32 @@ namespace utils
 	namespace string
 	{
 		//Parse unsigned integer
-		bool parse_uint32(const wchar_t *str, DWORD &value)
+		bool parse_uint32(const wchar_t *const str, DWORD &value)
 		{
 			if (swscanf_s(str, L"%lu", &value) != 1)
 			{
-				return false;
+				return false;  /*invalid*/
 			}
 			return true;
+		}
+
+		//Parse boolean
+		bool parse_bool(const wchar_t *const str, bool &value)
+		{
+			if(str && str[0])
+			{
+				if((_wcsicmp(str, L"0") == 0) || (_wcsicmp(str, L"NO") == 0))
+				{
+					value = false;
+					return true;
+				}
+				if((_wcsicmp(str, L"1") == 0) || (_wcsicmp(str, L"YES") == 0))
+				{
+					value = true;
+					return true;
+				}
+			}
+			return false; /*invalid*/
 		}
 
 		//Replace sub-strings
@@ -328,7 +353,7 @@ namespace utils
 		//Trim trailing EOL chars
 		wchar_t *trim_str(wchar_t *str)
 		{
-			while ((*str) && iswspace(*str) || iswcntrl(*str) || iswblank(*str))
+			while ((*str) && (iswspace(*str) || iswcntrl(*str) || iswblank(*str)))
 			{
 				str++;
 			}
@@ -432,6 +457,13 @@ namespace utils
 			return (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES);
 		}
 
+		//Check for file existence
+		bool file_exists(const wchar_t *const path)
+		{
+			const DWORD attributes = GetFileAttributesW(path);
+			return ((attributes != INVALID_FILE_ATTRIBUTES) && ((~attributes) & FILE_ATTRIBUTE_DIRECTORY));
+		}
+
 		//Check for directory existence
 		bool directory_exists(const wchar_t *const path)
 		{
@@ -465,19 +497,9 @@ namespace utils
 		//Get full path
 		std::wstring get_full_path(const wchar_t *const rel_path)
 		{
-			wchar_t path_buffer[MAX_PATH];
-			if (const wchar_t *const full_path = _wfullpath(path_buffer, rel_path, MAX_PATH))
+			if (const wchar_t *const full_path = _wfullpath(g_scratch_buffer, rel_path, SCRATCH_BUFFER_SIZE))
 			{
 				return std::wstring(full_path);
-			}
-			else
-			{
-				if (const wchar_t *const full_path_malloced = _wfullpath(NULL, rel_path, 0))
-				{
-					std::wstring result(full_path_malloced);
-					free((void*)full_path_malloced);
-					return result;
-				}
 			}
 			return std::wstring();
 		}
@@ -485,32 +507,28 @@ namespace utils
 		//Split path into components
 		bool split_file_name(const wchar_t *const full_path, std::wstring &drive, std::wstring &dir, std::wstring &fname, std::wstring &ext)
 		{
-			wchar_t buff_drive[_MAX_DRIVE], buff_dir[_MAX_DIR], buff_fname[_MAX_FNAME], buff_ext[_MAX_EXT];
-			const errno_t ret = _wsplitpath_s(full_path, buff_drive, buff_dir, buff_fname, buff_ext);
-			if(ret == 0)
+			static const DWORD BUFF_SIZE = SCRATCH_BUFFER_SIZE / 4;
+			if(_wsplitpath_s(full_path, &g_scratch_buffer[0], BUFF_SIZE, &g_scratch_buffer[BUFF_SIZE], BUFF_SIZE, &g_scratch_buffer[2*BUFF_SIZE], BUFF_SIZE, &g_scratch_buffer[3*BUFF_SIZE], BUFF_SIZE) == 0)
 			{
-				drive = buff_drive; dir = buff_dir; fname = buff_fname; ext = buff_ext;
+				drive = &g_scratch_buffer[0*BUFF_SIZE];
+				dir   = &g_scratch_buffer[1*BUFF_SIZE];
+				fname = &g_scratch_buffer[2*BUFF_SIZE];
+				ext   = &g_scratch_buffer[3*BUFF_SIZE];
 				return true;
 			}
-			else if (ret == ERANGE)
+			return false; /*failed the hard way*/
+		}
+
+		//EXE file name
+		std::wstring get_running_executable(void)
+		{
+			
+			const DWORD len = GetModuleFileNameW(NULL, g_scratch_buffer, SCRATCH_BUFFER_SIZE);
+			if((len > 0) && (len < SCRATCH_BUFFER_SIZE))
 			{
-				const size_t len = std::max(size_t(MAX_PATH), wcslen(full_path)) + 128U;
-				bool success = false;
-				wchar_t* tmp_drive = new wchar_t[len], *tmp_dir = new wchar_t[len], *tmp_fname = new wchar_t[len], *tmp_ext = new wchar_t[len];
-				if (_wsplitpath_s(full_path, tmp_drive, len, tmp_dir, len, tmp_fname, len, tmp_ext, len) == 0)
-				{
-					drive = tmp_drive; dir = tmp_dir; fname = tmp_fname; ext = tmp_ext;
-					success = true;
-				}
-				delete[] tmp_drive; delete[] tmp_dir; delete[] tmp_fname; delete[] tmp_ext;
-				return success;
+				return std::wstring(g_scratch_buffer);
 			}
-			else
-			{
-				return false; /*failed the hard way*/
-			}
+			return std::wstring();
 		}
 	}
 }
-
-
