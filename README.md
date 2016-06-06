@@ -1,5 +1,6 @@
 % MParallel
-% Created by LoRd_MuldeR &lt;<mulder2@gmx>&gt; &ndash; check <http://muldersoft.com/> for news and updates!
+% Created by LoRd_MuldeR &lt;<mulder2@gmx>&gt;  
+check <http://muldersoft.com/> for news and updates!
 
 
 # Introduction #
@@ -179,6 +180,26 @@ Print the help screen, also known as "manpage".
 **MParallel** returns `max(exitcode_1, exitcode_2, ..., exitcode_N)` as its exit code, where **exitcode_i** is the exit code that was returned by **i**-th sub-process. In general, a *zero* exit code indicates that all commands completed successfully, while a *non-zero* exit code indicates that at least one command has failed. Fatal errors are indicated by a **666** exit code.
 
 
+# Configuration File
+
+Optionally, **MParallel** can read *default* options from a configuration file. Any options read from the configuration file will override the "built-in" defaults. However, options passed on the command-line will *always* have precedence!
+
+In order to read options from a configuration file, create a text file in the same directory where the MParallel executable is located and with the same base name as the MParallel executable, but with a `.ini` file extension. If, for example, your executable path is `C:\Gizmo\MParallel.exe`, create the configuration file at `C:\Gizmo\MParallel.ini`.
+
+The configuration file may contain **any** MParallel option that is available on the command-line. It should start with a single `[MParallel]` header line (any lines before the header are ignored!) and, from that point on, contain one option per line. Options are specified in the `<name>=<value>` format. However, the `--` prefix is neither required nor allowed.
+
+Note that if the configuration file contains any characters other than plain US-ASCII, it is expected to be in *UTF-8* text encoding. Also note that *boolean* options can be overwritten using the `--some-option={0,1}` syntax.
+
+## Example
+
+A simple configuration file may look like this:
+
+    [MParallel]
+    shell
+    priority=4
+
+&hellip;which is equivalent to passing `--shell` and `--priority=4` on the command-line. Using *this* example configuration file, it is possible to *disable* the `--shell` option (now set by default) by passing `--shell=0` on the command-line.
+
 # Source Code
 
 **MParallel** source code is available from the official [**Git**](https://git-scm.com/) mirrors at:
@@ -223,13 +244,19 @@ License: CC Attribution 4.0 license
 
 # Version History
 
+## v1.0.4 [2016-06-??]
+
+* Added support for reading *default* options from a configuration file (`MParallel.ini`).
+
+* Documentation improvements.
+
 ## v1.0.3 [2016-06-05]
 
 * Implemented progress display in console title and console icon (disabled by `--silent`)
 
 * Open the log file in "shared" mode so that it is *readable* while MParallel is still running
 
-*  More code clean up and refactoring
+* More code clean up and refactoring
 
 ## v1.0.2 [2016-06-03]
 

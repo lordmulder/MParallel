@@ -96,7 +96,7 @@ REM ///////////////////////////////////////////////////////////////////////////
 REM // Generate Docs
 REM ///////////////////////////////////////////////////////////////////////////
 
-"%PDOC_PATH%\pandoc.exe" --from markdown --to html5 --toc -N --standalone -H "%~dp0\etc\css\style.inc" --output "%~dp0\README.html" "%~dp0\README.md"
+"%PDOC_PATH%\pandoc.exe" --from markdown --to html5 --toc -N --standalone --self-contained -c "%~dp0\etc\css\github-pandoc.css" --output "%~dp0\README.html" "%~dp0\README.md"
 if not "%ERRORLEVEL%"=="0" goto BuildHasFailed
 
 
