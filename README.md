@@ -1,7 +1,8 @@
 % MParallel
 % Created by LoRd_MuldeR &lt;<mulder2@gmx>&gt;  
-check <http://muldersoft.com/> for news and updates!
-
+check <http://muldersoft.com/> for news and updates!  
+&nbsp;  
+![MParallel](etc/img/MParallel.png)
 
 # Introduction #
 
