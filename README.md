@@ -158,6 +158,10 @@ Do *not* check the exit code of sub-processes. By default, MParallel checks the 
 
 Interpret the lines read from a file or from the STDIN stream with *UTF-16* text encoding. By default, MParallel will interpret the lines read from a file or from the STDIN with *UTF-8* text encoding. In most cases *UTF-8* is what you want.
 
+## `--notify`
+
+Play a notification sound, as soon as all commands have been completed (or failed) and MParallel is about exit.
+
 ## `--silent`
 
 Disable all textual messages, also known as "silent mode". Note that *fatal* error messages may still appear under some circumstances. Also note that this option is mutually exclusive with the `--trace` option.
@@ -246,7 +250,9 @@ License: CC Attribution 4.0 license
 
 ## v1.0.4 [2016-06-??]
 
-* Added support for reading *default* options from a configuration file (`MParallel.ini`).
+* Added support for reading *default* options from a configuration file (`MParallel.ini`)
+
+* Added new option `--notify` to play a sound as soon as all commands are completed
 
 * Documentation improvements.
 
