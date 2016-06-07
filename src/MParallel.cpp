@@ -35,6 +35,7 @@
 #include <codecvt>
 #include <cstdarg>
 #include <csignal>
+#include <sys/stat.h>
 
 //Win32
 #include <ShellAPI.h>
@@ -163,12 +164,15 @@ namespace logging
 		{
 			if (impl::g_log_file = _wfsopen(file_name, L"a,ccs=UTF-8", _SH_DENYWR))
 			{
-				_fseeki64(impl::g_log_file, 0, SEEK_END);
-				if (_ftelli64(impl::g_log_file) > 0)
-				{
-					fwprintf(impl::g_log_file, L"---------------------\n");
-				}
 				atexit(impl::close_log_file);
+				struct _stat64 stat;
+				if(_fstati64(_fileno(impl::g_log_file), &stat) == 0)
+				{
+					if (stat.st_size > 3LL)
+					{
+						fwprintf(impl::g_log_file, L"---------------------\n");
+					}
+				}
 			}
 			else
 			{
@@ -1408,7 +1412,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	}
 
 	//Logging
-	LOG(L"Total execution time: %.2f (Completed tasks: %u, Failed tasks: %u)\n", total_time, process::g_processes_completed[0], process::g_processes_completed[1]);
+	LOG(L"Total execution time: %.2f seconds (Tasks completed/failed/skipped: %u/%u/%u)\n", total_time, process::g_processes_completed[0], process::g_processes_completed[1], queue::impl::g_queue.size());
 
 	//Notification
 	if(options::enable_notifysnd && (!error::interrupted()))
