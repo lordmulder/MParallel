@@ -80,7 +80,7 @@ namespace utils
 			if (GetProcessAffinityMask(GetCurrentProcess(), &procMask, &sysMask))
 			{
 				const DWORD count = impl::popcount(procMask);
-				return BOUND(DWORD(1), count, DWORD(MAXWORD));
+				return BOUND(DWORD(1), count, DWORD(64));
 			}
 			return 1;
 		}

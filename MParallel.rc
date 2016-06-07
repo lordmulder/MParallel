@@ -1,21 +1,17 @@
 #include "src/MParallel.h"
 
+/////////////////////////////////////////////////////////////////////////////
+//
 // Microsoft Visual C++ generated resource script.
 //
 #define APSTUDIO_READONLY_SYMBOLS
-/////////////////////////////////////////////////////////////////////////////
-//
-// Generated from the TEXTINCLUDE 2 resource.
-//
 #include "WinResrc.h" //"afxres.h"
-
-/////////////////////////////////////////////////////////////////////////////
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
+//
 // Neutral resources
-
-#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_NEU)
+//
 #ifdef _WIN32
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 #pragma code_page(1252)
@@ -25,7 +21,6 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 //
 // Version
 //
-
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION MPARALLEL_VERSION_MAJOR,MPARALLEL_VERSION_MINOR,MPARALLEL_VERSION_PATCH,0
  PRODUCTVERSION MPARALLEL_VERSION_MAJOR,MPARALLEL_VERSION_MINOR,MPARALLEL_VERSION_PATCH,0
@@ -61,63 +56,14 @@ BEGIN
     END
 END
 
-#endif    // Neutral resources
-/////////////////////////////////////////////////////////////////////////////
-
-
-/////////////////////////////////////////////////////////////////////////////
-// German (Germany) resources
-
-#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_DEU)
-#ifdef _WIN32
-LANGUAGE LANG_GERMAN, SUBLANG_GERMAN
-#pragma code_page(1252)
-#endif //_WIN32
-
-#ifdef APSTUDIO_INVOKED
-/////////////////////////////////////////////////////////////////////////////
-//
-// TEXTINCLUDE
-//
-
-1 TEXTINCLUDE 
-BEGIN
-    "src\\Resource.h\0"
-END
-
-2 TEXTINCLUDE 
-BEGIN
-    "#include ""afxres.h""\r\n"
-    "\0"
-END
-
-3 TEXTINCLUDE 
-BEGIN
-    "\r\n"
-    "\0"
-END
-
-#endif    // APSTUDIO_INVOKED
-
-
 /////////////////////////////////////////////////////////////////////////////
 //
 // Icon
 //
+MPARALLEL_ICON ICON "res\\MParallel.ico"
 
-// Icon with lowest ID value placed first to ensure application icon
-// remains consistent on all systems.
-MPARALLEL_ICON1               ICON                    "MParallel.ico"
-#endif    // German (Germany) resources
-/////////////////////////////////////////////////////////////////////////////
-
-
-#ifndef APSTUDIO_INVOKED
 /////////////////////////////////////////////////////////////////////////////
 //
-// Generated from the TEXTINCLUDE 3 resource.
+// Sound
 //
-
-
-/////////////////////////////////////////////////////////////////////////////
-#endif    // not APSTUDIO_INVOKED
+NOTIFICATION WAVE "res\\Notification.wav"

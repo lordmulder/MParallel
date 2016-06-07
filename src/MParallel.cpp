@@ -38,6 +38,7 @@
 
 //Win32
 #include <ShellAPI.h>
+#include <MMSystem.h>
 
 //VLD
 #include <vld.h>
@@ -74,6 +75,7 @@ namespace options
 	static bool         disable_lineargv;
 	static bool         disable_outputs;
 	static bool         discard_textouts;
+	static bool         enable_notifysnd;
 	static bool         enable_tracing;
 	static bool         encoding_utf16;
 	static bool         force_use_shell;
@@ -210,12 +212,13 @@ namespace manpage
 
 	static void print_manpage(void)
 	{
+		const DWORD CPU_COUNT = utils::sysinfo::get_processor_count();
 		PRINT_NFO(L"Synopsis:\n");
 		PRINT_NFO(L"  MParallel.exe [options] <command_1> : <command_2> : ... : <command_n>\n");
 		PRINT_NFO(L"  MParallel.exe [options] --input=commands.txt\n");
 		PRINT_NFO(L"  GenerateCommands.exe [parameters] | MParallel.exe [options] --stdin\n\n");
 		PRINT_NFO(L"Options:\n");
-		PRINT_NFO(L"  --count=<N>          Run at most N instances in parallel (Default is %u)\n", utils::sysinfo::get_processor_count());
+		PRINT_NFO(L"  --count=<N>          Run at most N instances in parallel (Default is %u)\n", CPU_COUNT);
 		PRINT_NFO(L"  --pattern=<PATTERN>  Generate commands from the specified PATTERN\n");
 		PRINT_NFO(L"  --separator=<SEP>    Set the command separator to SEP (Default is '%s')\n", DEFAULT_SEP);
 		PRINT_NFO(L"  --input=<FILE>       Read additional commands from specified FILE\n");
@@ -233,6 +236,7 @@ namespace manpage
 		PRINT_NFO(L"  --abort              Abort batch, if any command failed to execute\n");
 		PRINT_NFO(L"  --no-jobctrl         Do NOT add new sub-processes to job object\n");
 		PRINT_NFO(L"  --discard-output     Discard all stdout/stderr outputs of sub-processes\n");
+		PRINT_NFO(L"  --notify             Play a notification sound when all tasks completed\n");
 		PRINT_NFO(L"  --silent             Disable all textual messages, aka \"silent mode\"\n");
 		PRINT_NFO(L"  --no-colors          Do NOT applay colors to textual console output\n");
 		PRINT_NFO(L"  --trace              Enable more diagnostic outputs (for debugging only)\n");
@@ -505,26 +509,29 @@ namespace command
 // OPTION HANDLING
 // ==========================================================================
 
-#define REQUIRE_VALUE() do \
+#define PARSE_WSTR(OUT) do \
 { \
-	if ((!value) || (!value[0])) \
-	{ \
-		PRINT_ERR(L"ERROR: Argument for option \"--%s\" is missing!\n\n", option); \
-		return false; \
-	} \
+	(OUT) = (value && value[0]) ? std::wstring(value) : std::wstring(); \
 } \
 while(0)
 
 #define PARSE_UINT32(MIN, OUT, MAX) do \
 { \
-	REQUIRE_VALUE(); \
-	DWORD _temp; \
-	if(!utils::string::parse_uint32(value, _temp)) \
+	if(value && value[0]) \
 	{ \
-		PRINT_ERR(L"ERROR: Argument \"%s\" doesn't look like a valid integer!\n\n", value); \
+		DWORD _temp; \
+		if(!utils::string::parse_uint32(value, _temp)) \
+		{ \
+			PRINT_ERR(L"ERROR: Argument \"%s\" doesn't look like a valid integer!\n\n", value); \
+			return false; \
+		} \
+		(OUT) = BOUND((MIN), _temp, (MAX)); \
+	} \
+	else \
+	{ \
+		PRINT_ERR(L"ERROR: Argument for option \"--%s\" is missing!\n\n", option); \
 		return false; \
 	} \
-	(OUT) = BOUND((MIN), _temp, (MAX)); \
 } \
 while(0)
 
@@ -561,13 +568,14 @@ namespace options
 		disable_lineargv = false;
 		disable_outputs  = false;
 		discard_textouts = false;
+		enable_notifysnd = false;
 		enable_tracing   = false;
 		encoding_utf16   = false;
 		force_use_shell  = false;
 		ignore_exitcode  = false;
 		input_file_name  = std::wstring();
 		log_file_name    = std::wstring();
-		max_instances    = utils::sysinfo::get_processor_count();
+		max_instances    = 0;
 		process_priority = PRIORITY_DEFAULT;
 		process_timeout  = 0;
 		print_manpage    = false;
@@ -587,19 +595,17 @@ namespace options
 		{
 			if (MATCH(option, L"pattern"))
 			{
-				REQUIRE_VALUE();
-				options::command_pattern = value;
+				PARSE_WSTR(options::command_pattern);
 				return true;
 			}
 			else if (MATCH(option, L"count"))
 			{
-				PARSE_UINT32(DWORD(1), options::max_instances, DWORD(MAX_TASKS));
+				PARSE_UINT32(DWORD(0), options::max_instances, DWORD(MAX_TASKS));
 				return true;
 			}
 			else if (MATCH(option, L"separator"))
 			{
-				REQUIRE_VALUE();
-				options::separator = value;
+				PARSE_WSTR(options::separator);
 				return true;
 			}
 			else if (MATCH(option, L"stdin"))
@@ -609,20 +615,17 @@ namespace options
 			}
 			else if (MATCH(option, L"input"))
 			{
-				REQUIRE_VALUE();
-				options::input_file_name = value;
+				PARSE_WSTR(options::input_file_name);
 				return true;
 			}
 			else if (MATCH(option, L"logfile"))
 			{
-				REQUIRE_VALUE();
-				options::log_file_name = value;
+				PARSE_WSTR(options::log_file_name);
 				return true;
 			}
 			else if (MATCH(option, L"out-path"))
 			{
-				REQUIRE_VALUE();
-				options::redir_path_name = value;
+				PARSE_WSTR(options::redir_path_name);
 				return true;
 			}
 			else if (MATCH(option, L"auto-wrap"))
@@ -678,6 +681,11 @@ namespace options
 			else if (MATCH(option, L"utf16"))
 			{
 				PARSE_BOOL(options::encoding_utf16);
+				return true;
+			}
+			else if (MATCH(option, L"notify"))
+			{
+				PARSE_BOOL(options::enable_notifysnd);
 				return true;
 			}
 			else if (MATCH(option, L"trace"))
@@ -1267,6 +1275,7 @@ namespace process
 		if (interrupted)
 		{
 			PRINT_ERR(L"\nSIGINT: Interrupted by user, exiting!\n\n");
+			LOG(L"INTERRUPTED !!!\n");
 		}
 
 		//Terminate all processes still running at this point
@@ -1291,11 +1300,12 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 
 	//Setup logo
 	output::g_print_logo_func = manpage::print_logo;
-	
+
 	//Init options
 	options::reset_all_options();
 	process::reset_counters();
 
+	//Read defaults
 	if (!options::parse_options_file())
 	{
 		PRINT_WRN(L"Failed to parse options file. Please fix your options file and try again!\n\n");
@@ -1319,8 +1329,15 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	//Setup console icon and title text
 	if (!options::disable_outputs)
 	{
-		utils::console::inti_console_window(L"MPARALLEL_ICON1");
+		utils::console::inti_console_window(L"MPARALLEL_ICON");
 		utils::console::set_console_title(L"MParallel - Initializing...");
+	}
+
+	//Auto-detect number of processors
+	if(options::max_instances < 1)
+	{
+		const DWORD cpu_count = utils::sysinfo::get_processor_count();
+		options::max_instances = BOUND(DWORD(0), cpu_count, DWORD(MAX_TASKS));
 	}
 
 	//Open log file
@@ -1392,6 +1409,12 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 
 	//Logging
 	LOG(L"Total execution time: %.2f (Completed tasks: %u, Failed tasks: %u)\n", total_time, process::g_processes_completed[0], process::g_processes_completed[1]);
+
+	//Notification
+	if(options::enable_notifysnd && (!error::interrupted()))
+	{
+		PlaySoundW(L"NOTIFICATION", GetModuleHandle(NULL), SND_RESOURCE | SND_SYNC);
+	}
 
 	//Close log file
 	return process::g_max_exit_code;
