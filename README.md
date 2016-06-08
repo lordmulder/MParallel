@@ -261,7 +261,7 @@ License: CC Attribution 4.0 license
 
 * Apply priority boost to MParallel "main" process by default (disabled by `--no-boost`)
 
-* Documentation improvements.
+* Documentation improvements
 
 ## v1.0.3 [2016-06-05]
 
