@@ -145,7 +145,11 @@ Abort batch, if any command failed to execute. By default, if any command failed
 
 ## `--no-jobctrl`
 
-Do *not* add new sub-processes to job object. By default, MParallel adds all new sub-processes to a *Job Object*, which makes sure that all sub-processes will die immediately when the MParallel process is terminated. If this option is set, sub-processes are *not* added to the Job Object and may continue running after the MParallel was terminated.
+Do **not** add new sub-processes to job object. By default, MParallel adds all new sub-processes to a *Job Object*, which makes sure that all sub-processes will die immediately when the MParallel process is terminated. If this option is set, sub-processes are *not* added to the Job Object and may continue running after the MParallel was terminated.
+
+## `--no-boost`
+
+Do **not** apply priority boost to MParallel process. By default, the MParallel process will run with somewhat higher priority than the sub-processes. Also the system timer precision will be improved. This does *not* aim to give the MParallel process more CPU time (it needs *very few* CPU time anyway!), but to improve the delays in process creation and termination.
 
 ## `--discard-output`
 
@@ -249,11 +253,13 @@ License: CC Attribution 4.0 license
 
 # Version History
 
-## v1.0.4 [2016-06-??]
+## v1.0.4 [2016-06-08]
 
 * Added support for reading *default* options from a configuration file (`MParallel.ini`)
 
 * Added new option `--notify` to play a sound as soon as all commands are completed
+
+* Apply priority boost to MParallel "main" process by default (disabled by `--no-boost`)
 
 * Documentation improvements.
 
