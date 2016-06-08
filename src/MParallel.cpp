@@ -51,7 +51,8 @@ static const wchar_t *const FILE_DELIMITERS = L"/\\:";
 static const wchar_t *const BLANK_STR = L"";
 
 //Instance
-EXTERN_C HINSTANCE __ImageBase;
+EXTERN_C IMAGE_DOS_HEADER __ImageBase;
+#define MY_HINSTANCE ((HINSTANCE)&__ImageBase)
 
 //Types
 typedef std::queue<std::wstring> queue_t;
@@ -930,6 +931,20 @@ namespace priority
 		{
 			timeEndPeriod(g_timer_period);
 		}
+
+		//Thread priorities
+		static DWORD map_thread_priority(const DWORD priority)
+		{
+			switch (BOUND(DWORD(PRIORITY_DEFAULT), priority, DWORD(PRIORITY_MAXIMUM)))
+			{
+				case PRIORITY_DEFAULT: return THREAD_PRIORITY_NORMAL;        break;
+				case PRIORITY_HIGHER:  return THREAD_PRIORITY_ABOVE_NORMAL;  break;
+				case PRIORITY_HIGHEST: return THREAD_PRIORITY_HIGHEST;       break;
+				case PRIORITY_MAXIMUM: return THREAD_PRIORITY_TIME_CRITICAL; break;
+			}
+			PRINT_WRN(L"WARNING: Unknown priority value %u specified!", priority);
+			return 0;
+		}
 	}
 
 	//Translate to Win32 priority class
@@ -937,12 +952,12 @@ namespace priority
 	{
 		switch (BOUND(DWORD(PRIORITY_LOWEST), priority, DWORD(PRIORITY_MAXIMUM)))
 		{
-		case PRIORITY_LOWEST:  return IDLE_PRIORITY_CLASS;         break;
-		case PRIORITY_LOWER:   return BELOW_NORMAL_PRIORITY_CLASS; break;
-		case PRIORITY_DEFAULT: return NORMAL_PRIORITY_CLASS;       break;
-		case PRIORITY_HIGHER:  return ABOVE_NORMAL_PRIORITY_CLASS; break;
-		case PRIORITY_HIGHEST: return HIGH_PRIORITY_CLASS;         break;
-		case PRIORITY_MAXIMUM: return HIGH_PRIORITY_CLASS;         break;
+			case PRIORITY_LOWEST:  return IDLE_PRIORITY_CLASS;         break;
+			case PRIORITY_LOWER:   return BELOW_NORMAL_PRIORITY_CLASS; break;
+			case PRIORITY_DEFAULT: return NORMAL_PRIORITY_CLASS;       break;
+			case PRIORITY_HIGHER:  return ABOVE_NORMAL_PRIORITY_CLASS; break;
+			case PRIORITY_HIGHEST: return HIGH_PRIORITY_CLASS;         break;
+			case PRIORITY_MAXIMUM: return HIGH_PRIORITY_CLASS;         break;
 		}
 		PRINT_WRN(L"WARNING: Unknown priority value %u specified!", priority);
 		return 0;
@@ -951,20 +966,21 @@ namespace priority
 	//Apply priority boost
 	static void set_process_priority(const DWORD priority_value)
 	{
-		if (SetPriorityClass(GetCurrentProcess(), get_priority_class(priority_value)))
-		{
-			if (!impl::g_timer_flag)
-			{
-				if (timeBeginPeriod(1) == TIMERR_NOERROR)
-				{
-					impl::g_timer_flag = true;
-					atexit(impl::restore_timer_period);
-				}
-			}
-		}
-		else
+		if (!SetPriorityClass(GetCurrentProcess(), get_priority_class(priority_value)))
 		{
 			PRINT_WRN(L"WARNING: Failed to change process priority!\n\n");
+		}
+		if (!SetThreadPriority(GetCurrentThread(), impl::map_thread_priority(priority_value)))
+		{
+			PRINT_WRN(L"WARNING: Failed to change thread priority!\n\n");
+		}
+		if (!impl::g_timer_flag)
+		{
+			if (timeBeginPeriod(1) == TIMERR_NOERROR)
+			{
+				impl::g_timer_flag = true;
+				atexit(impl::restore_timer_period);
+			}
 		}
 	}
 }
@@ -980,7 +996,7 @@ namespace priority
 	{ \
 		const DWORD processes_completed = g_processes_completed[0] + g_processes_completed[1]; \
 		const double progress = 100.0 * (double(processes_completed) / double(queue::g_queue_max)); \
-		utils::console::set_console_title(L"[%.1f%%] MParallel - %u tasks running (%u of %u completed)", progress, g_processes_active, processes_completed, queue::g_queue_max); \
+		utils::console::set_console_title(L"[%.1f%%] MParallel - %u task%s running (%u of %u completed)", progress, g_processes_active, ((g_processes_active != 1) ? L"s" : L""), processes_completed, queue::g_queue_max); \
 	} \
 } \
 while(0)
@@ -1475,7 +1491,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	//Notification
 	if(options::enable_notifysnd && (!error::interrupted()))
 	{
-		PlaySoundW(L"NOTIFICATION", __ImageBase, SND_RESOURCE | SND_SYNC);
+		PlaySoundW(L"NOTIFICATION", MY_HINSTANCE, SND_RESOURCE | SND_SYNC);
 	}
 
 	//Close log file
