@@ -50,17 +50,21 @@ static const size_t MAX_TASKS = MAXIMUM_WAIT_OBJECTS - 1;
 static const wchar_t *const FILE_DELIMITERS = L"/\\:";
 static const wchar_t *const BLANK_STR = L"";
 
+//Instance
+EXTERN_C HINSTANCE __ImageBase;
+
 //Types
 typedef std::queue<std::wstring> queue_t;
 
-//Enum
+//Priority classes
 typedef enum _priority_t
 {
-	PRIORITY_LOWEST  = 0,
-	PRIORITY_LOWER   = 1,
-	PRIORITY_DEFAULT = 2,
-	PRIORITY_HIGHER  = 3,
-	PRIORITY_HIGHEST = 4
+	PRIORITY_LOWEST  = 0U,
+	PRIORITY_LOWER   = 1U,
+	PRIORITY_DEFAULT = 2U,
+	PRIORITY_HIGHER  = 3U,
+	PRIORITY_HIGHEST = 4U,
+	PRIORITY_MAXIMUM = 5U
 }
 priority_t;
 
@@ -75,6 +79,7 @@ namespace options
 	static bool         disable_jobctrl;
 	static bool         disable_lineargv;
 	static bool         disable_outputs;
+	static bool         disable_prboost;
 	static bool         discard_textouts;
 	static bool         enable_notifysnd;
 	static bool         enable_tracing;
@@ -239,6 +244,7 @@ namespace manpage
 		PRINT_NFO(L"  --detached           Run each sub-process in a separate console window\n");
 		PRINT_NFO(L"  --abort              Abort batch, if any command failed to execute\n");
 		PRINT_NFO(L"  --no-jobctrl         Do NOT add new sub-processes to job object\n");
+		PRINT_NFO(L"  --no-boost           Do NOT apply priroity boost to the \"main\" process\n");
 		PRINT_NFO(L"  --discard-output     Discard all stdout/stderr outputs of sub-processes\n");
 		PRINT_NFO(L"  --notify             Play a notification sound when all tasks completed\n");
 		PRINT_NFO(L"  --silent             Disable all textual messages, aka \"silent mode\"\n");
@@ -571,6 +577,7 @@ namespace options
 		disable_jobctrl  = false;
 		disable_lineargv = false;
 		disable_outputs  = false;
+		disable_prboost  = false;
 		discard_textouts = false;
 		enable_notifysnd = false;
 		enable_tracing   = false;
@@ -670,6 +677,11 @@ namespace options
 			else if (MATCH(option, L"no-jobctrl"))
 			{
 				PARSE_BOOL(options::disable_jobctrl);
+				return true;
+			}
+			else if (MATCH(option, L"no-boost"))
+			{
+				PARSE_BOOL(options::disable_prboost);
 				return true;
 			}
 			else if (MATCH(option, L"discard-output"))
@@ -903,6 +915,61 @@ namespace options
 }
 
 // ==========================================================================
+// TIMER
+// ==========================================================================
+
+namespace priority
+{
+	namespace impl
+	{
+		static bool g_timer_flag = false;
+		static const DWORD g_timer_period = 1U;
+
+		//Restore timer
+		static void restore_timer_period(void)
+		{
+			timeEndPeriod(g_timer_period);
+		}
+	}
+
+	//Translate to Win32 priority class
+	static DWORD get_priority_class(const DWORD priority)
+	{
+		switch (BOUND(DWORD(PRIORITY_LOWEST), priority, DWORD(PRIORITY_MAXIMUM)))
+		{
+		case PRIORITY_LOWEST:  return IDLE_PRIORITY_CLASS;         break;
+		case PRIORITY_LOWER:   return BELOW_NORMAL_PRIORITY_CLASS; break;
+		case PRIORITY_DEFAULT: return NORMAL_PRIORITY_CLASS;       break;
+		case PRIORITY_HIGHER:  return ABOVE_NORMAL_PRIORITY_CLASS; break;
+		case PRIORITY_HIGHEST: return HIGH_PRIORITY_CLASS;         break;
+		case PRIORITY_MAXIMUM: return HIGH_PRIORITY_CLASS;         break;
+		}
+		PRINT_WRN(L"WARNING: Unknown priority value %u specified!", priority);
+		return 0;
+	}
+
+	//Apply priority boost
+	static void set_process_priority(const DWORD priority_value)
+	{
+		if (SetPriorityClass(GetCurrentProcess(), get_priority_class(priority_value)))
+		{
+			if (!impl::g_timer_flag)
+			{
+				if (timeBeginPeriod(1) == TIMERR_NOERROR)
+				{
+					impl::g_timer_flag = true;
+					atexit(impl::restore_timer_period);
+				}
+			}
+		}
+		else
+		{
+			PRINT_WRN(L"WARNING: Failed to change process priority!\n\n");
+		}
+	}
+}
+
+// ==========================================================================
 // PROCESS FUNCTIONS
 // ==========================================================================
 
@@ -1031,21 +1098,6 @@ namespace process
 			return NULL;
 		}
 
-		//Translate to Win32 priority class
-		static DWORD get_priority_class(const DWORD priority)
-		{
-			switch (options::process_priority)
-			{
-				case PRIORITY_LOWEST:  return IDLE_PRIORITY_CLASS;         break;
-				case PRIORITY_LOWER:   return BELOW_NORMAL_PRIORITY_CLASS; break;
-				case PRIORITY_DEFAULT: return NORMAL_PRIORITY_CLASS;       break;
-				case PRIORITY_HIGHER:  return ABOVE_NORMAL_PRIORITY_CLASS; break;
-				case PRIORITY_HIGHEST: return HIGH_PRIORITY_CLASS;         break;
-			}
-			PRINT_WRN(L"WARNING: Unknown priority value %u specified!", priority);
-			return 0;
-		}
-
 		//Start the next process
 		static bool start_next_process(std::wstring command)
 		{
@@ -1084,7 +1136,7 @@ namespace process
 				}
 			}
 
-			DWORD flags = CREATE_BREAKAWAY_FROM_JOB | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | get_priority_class(options::process_priority);
+			DWORD flags = CREATE_BREAKAWAY_FROM_JOB | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | priority::get_priority_class(options::process_priority);
 			if (options::detached_console)
 			{
 				flags = flags | CREATE_NEW_CONSOLE;
@@ -1344,6 +1396,12 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 		options::max_instances = BOUND(DWORD(0), cpu_count, DWORD(MAX_TASKS));
 	}
 
+	//Priority boost
+	if (!options::disable_prboost)
+	{
+		priority::set_process_priority(options::process_priority + 1);
+	}
+
 	//Open log file
 	if (!options::log_file_name.empty())
 	{
@@ -1417,7 +1475,7 @@ static int mparallel_main(const int argc, const wchar_t *const argv[])
 	//Notification
 	if(options::enable_notifysnd && (!error::interrupted()))
 	{
-		PlaySoundW(L"NOTIFICATION", GetModuleHandle(NULL), SND_RESOURCE | SND_SYNC);
+		PlaySoundW(L"NOTIFICATION", __ImageBase, SND_RESOURCE | SND_SYNC);
 	}
 
 	//Close log file
