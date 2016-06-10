@@ -1,13 +1,12 @@
-% MParallel
-% Created by LoRd_MuldeR &lt;<mulder2@gmx>&gt;  
-check <http://muldersoft.com/> for news and updates!  
-&nbsp;  
-![MParallel](etc/img/MParallel.png)
+% MParallel  
+![MParallel](etc/img/MParallel.png)  
+
 
 # Introduction #
 
 **MParallel** is a batch processor with *multi-threading* support, i.e. it will run multiple tasks *in parallel*. This can be very useful, not only, to take full advantage of multi-processor (multi-core) machines.
 
+Created by LoRd_MuldeR &lt;<mulder2@gmx>&gt;. Please check <http://muldersoft.com/> for news and updates!
 
 # Synopsis #
 
