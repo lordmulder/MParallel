@@ -214,7 +214,7 @@ A simple configuration file may look like this:
 
 * <https://github.com/lordmulder/MParallel.git>
 
-* <https://bitbucket.org/lord_mulder/mparallel.git>
+* <https://bitbucket.org/muldersoft/mparallel.git>
 
 * <https://git.assembla.com/mparallel.git>
 
